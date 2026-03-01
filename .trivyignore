@@ -1,0 +1,6 @@
+# Trivy ignore file
+# Format: CVE-YYYY-XXXXX or vulnerability ID
+# Add justification comments above each ignored vulnerability
+
+# Example:
+# CVE-2023-12345  # Not exploitable in our context because...
