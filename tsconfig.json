@@ -1,0 +1,21 @@
+{
+  "extends": [
+    "@sapphire/ts-config",
+    "@sapphire/ts-config/bundler",
+    "@sapphire/ts-config/extra-strict",
+    "@sapphire/ts-config/verbatim"
+  ],
+
+  "compilerOptions": {
+    // "noEmit": true,
+    // "incremental": false,
+    // "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "rootDir": ".",
+    "outDir": "./dist",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["./src/**/*.ts", "./scripts/**/*.ts", "vitest.config.ts"]
+}
