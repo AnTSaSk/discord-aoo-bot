@@ -1,6 +1,6 @@
 {
   "name": "discord-bot-aoo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Alexis Besson me@alexis-besson.dev <https://alexis-besson.dev/>",
   "license": "GPL-3.0-or-later",
   "description": "Discord bot specially created for Albion Online game, it allows player to add/list/remove objectives (nodes, cores and vortexes) with all the necessary informations like the type of objective, it's rarity, the map and the time remaining before objective unlock",
@@ -19,6 +19,7 @@
     "dev": "pnpm run build && node --env-file=.env.dev dist/src/main.js",
     "start": "node dist/src/main.js",
     "lint": "eslint .",
+    "test": "vitest run",
     "prepare": "[ -d .git ] && git config core.hooksPath .githooks || true"
   },
   "packageManager": "pnpm@10.27.0+sha512.72d699da16b1179c14ba9e64dc71c9a40988cbdc65c264cb0e489db7de917f20dcf4d64d8723625f2969ba52d4b7e2a1170682d9ac2a5dcaeaab732b7e16f04a",
@@ -44,12 +45,15 @@
     "tsc-alias": "1.8.16",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.54.0"
+    "typescript-eslint": "8.54.0",
+    "vitest": "^4.0.18"
   },
   "pnpm": {
     "overrides": {
       "lodash": ">=4.17.23",
-      "undici": ">=6.23.0"
+      "undici": ">=6.23.0",
+      "minimatch": ">=9.0.6",
+      "dottie": ">=2.0.7"
     }
   }
 }

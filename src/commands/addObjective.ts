@@ -12,21 +12,43 @@ import { Op } from '@sequelize/core';
 import { getLogger } from '@/config/logger.js';
 
 // Constants
+import { COOLDOWN_DEFAULT, DUPLICATE_TIME_WINDOW_MINUTES } from '@/constants/config.js';
 import { MAPS } from '@/constants/map.js';
-import { RARITIES, RARITY_4_4, RARITY_5_4, RARITY_6_4, RARITY_7_4, RARITY_8_4, RARITY_COMMON, RARITY_EPIC, RARITY_LEGENDARY, RARITY_RARE } from '@/constants/rarity.js';
-import { TYPE_CORE, TYPE_NODE_FIBER, TYPE_NODE_HIDE, TYPE_NODE_ORE, TYPE_NODE_WOOD, TYPE_VORTEX, TYPES } from '@/constants/type.js';
+import {
+  RARITIES,
+  RARITY_4_4,
+  RARITY_5_4,
+  RARITY_6_4,
+  RARITY_7_4,
+  RARITY_8_4,
+  RARITY_COMMON,
+  RARITY_EPIC,
+  RARITY_LEGENDARY,
+  RARITY_RARE,
+} from '@/constants/rarity.js';
+import {
+  TYPE_CORE,
+  TYPE_NODE_FIBER,
+  TYPE_NODE_HIDE,
+  TYPE_NODE_ORE,
+  TYPE_NODE_WOOD,
+  TYPE_VORTEX,
+  TYPES,
+} from '@/constants/type.js';
 
 // Services
 import {
   createObjective,
-  deleteObjectivesByIds,
   findAllObjective,
   findObjectiveByGuildId,
 } from '@/services/objective.service.js';
 
 // Tasks
-import { deletePreviousMessage, getMessage } from '@/tasks/message.js';
+import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
 import { getRelativeTime, isMaintenanceAdded } from '@/tasks/date.js';
+
+// Utils
+import { replyError } from '@/utils/reply.js';
 
 export class AddObjectiveCommand extends Command {
   constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -34,7 +56,7 @@ export class AddObjectiveCommand extends Command {
       ...options,
       name: 'add',
       description: 'Add new objective',
-      cooldownDelay: 2_000,
+      cooldownDelay: COOLDOWN_DEFAULT,
     });
   }
 
@@ -79,7 +101,9 @@ export class AddObjectiveCommand extends Command {
     );
   }
 
-  public override async autocompleteRun(interaction: Command.AutocompleteInteraction): Promise<void> {
+  public override async autocompleteRun(
+    interaction: Command.AutocompleteInteraction,
+  ): Promise<void> {
     const focusedOption = interaction.options.getFocused(true);
     const typeOption = interaction.options.getString('type');
     const rarityOption = interaction.options.getString('rarity');
@@ -96,11 +120,12 @@ export class AddObjectiveCommand extends Command {
             case RARITY_6_4:
             case RARITY_7_4:
             case RARITY_8_4:
-              choices = choices.filter((choice) =>
-                choice === TYPE_NODE_FIBER ||
-                choice === TYPE_NODE_HIDE ||
-                choice === TYPE_NODE_ORE ||
-                choice === TYPE_NODE_WOOD,
+              choices = choices.filter(
+                (choice) =>
+                  choice === TYPE_NODE_FIBER ||
+                  choice === TYPE_NODE_HIDE ||
+                  choice === TYPE_NODE_ORE ||
+                  choice === TYPE_NODE_WOOD,
               );
               break;
 
@@ -108,10 +133,7 @@ export class AddObjectiveCommand extends Command {
             case RARITY_RARE:
             case RARITY_EPIC:
             case RARITY_LEGENDARY:
-              choices = choices.filter((choice) =>
-                choice === TYPE_CORE ||
-                choice === TYPE_VORTEX,
-              );
+              choices = choices.filter((choice) => choice === TYPE_CORE || choice === TYPE_VORTEX);
               break;
           }
         }
@@ -127,22 +149,24 @@ export class AddObjectiveCommand extends Command {
             case TYPE_NODE_HIDE:
             case TYPE_NODE_ORE:
             case TYPE_NODE_WOOD:
-              choices = choices.filter((choice) =>
-                choice === RARITY_4_4 ||
-                choice === RARITY_5_4 ||
-                choice === RARITY_6_4 ||
-                choice === RARITY_7_4 ||
-                choice === RARITY_8_4,
+              choices = choices.filter(
+                (choice) =>
+                  choice === RARITY_4_4 ||
+                  choice === RARITY_5_4 ||
+                  choice === RARITY_6_4 ||
+                  choice === RARITY_7_4 ||
+                  choice === RARITY_8_4,
               );
               break;
 
             case TYPE_CORE:
             case TYPE_VORTEX:
-              choices = choices.filter((choice) =>
-                choice === RARITY_COMMON ||
-                choice === RARITY_RARE ||
-                choice === RARITY_EPIC ||
-                choice === RARITY_LEGENDARY,
+              choices = choices.filter(
+                (choice) =>
+                  choice === RARITY_COMMON ||
+                  choice === RARITY_RARE ||
+                  choice === RARITY_EPIC ||
+                  choice === RARITY_LEGENDARY,
               );
               break;
           }
@@ -156,10 +180,11 @@ export class AddObjectiveCommand extends Command {
     }
 
     let filteredChoices = focusedOption.value ?
-      choices.filter((choice) =>
-        choice.toLowerCase().startsWith(focusedOption.value.toLowerCase()) ||
-        choice.toLowerCase().endsWith(focusedOption.value.toLowerCase()) ||
-        choice.toLowerCase().includes(focusedOption.value.toLowerCase()),
+      choices.filter(
+        (choice) =>
+          choice.toLowerCase().startsWith(focusedOption.value.toLowerCase()) ||
+          choice.toLowerCase().endsWith(focusedOption.value.toLowerCase()) ||
+          choice.toLowerCase().includes(focusedOption.value.toLowerCase()),
       ) :
       choices;
 
@@ -175,7 +200,9 @@ export class AddObjectiveCommand extends Command {
     );
   }
 
-  public override async chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<void> {
+  public override async chatInputRun(
+    interaction: Command.ChatInputCommandInteraction,
+  ): Promise<void> {
     const logger = getLogger();
     const guildId = interaction.guildId;
     const channelId = interaction.channelId;
@@ -185,23 +212,30 @@ export class AddObjectiveCommand extends Command {
     const objectiveMap = interaction.options.getString('map');
     const objectiveTime = interaction.options.getString('time');
 
-    if (!guildId || !channelId || !userId || !objectiveType || !objectiveRarity || !objectiveMap || !objectiveTime) {
-      logger.error({
-        command: 'addObjective',
-        guildId: guildId ?? undefined,
-        channelId,
-        userId,
-        type: objectiveType ?? undefined,
-        rarity: objectiveRarity ?? undefined,
-        map: objectiveMap ?? undefined,
-        time: objectiveTime ?? undefined,
-      }, 'Command missing required values');
+    if (
+      !guildId ||
+      !channelId ||
+      !userId ||
+      !objectiveType ||
+      !objectiveRarity ||
+      !objectiveMap ||
+      !objectiveTime
+    ) {
+      logger.error(
+        {
+          command: 'addObjective',
+          guildId: guildId ?? undefined,
+          channelId,
+          userId,
+          type: objectiveType ?? undefined,
+          rarity: objectiveRarity ?? undefined,
+          map: objectiveMap ?? undefined,
+          time: objectiveTime ?? undefined,
+        },
+        'Command missing required values',
+      );
 
-      await interaction.reply({
-        content: `Something went wrong, please try again.
-If the problem persist, please contact the Bot Developer.`,
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyError(interaction, 'missingValues');
 
       return;
     }
@@ -213,19 +247,18 @@ If the problem persist, please contact the Bot Developer.`,
       !MAPS.includes(objectiveMap) ||
       !(/^(?:[01]?\d|2[0-3]):[0-5]\d$/).test(objectiveTime)
     ) {
-      logger.error({
-        command: 'addObjective',
-        type: objectiveType,
-        rarity: objectiveRarity,
-        map: objectiveMap,
-        time: objectiveTime,
-      }, 'Command received incorrect values');
+      logger.error(
+        {
+          command: 'addObjective',
+          type: objectiveType,
+          rarity: objectiveRarity,
+          map: objectiveMap,
+          time: objectiveTime,
+        },
+        'Command received incorrect values',
+      );
 
-      await interaction.reply({
-        content: `One or multiple value(s) are incorrect, please try again.
-If the problem persist, please contact the Bot Developer.`,
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyError(interaction, 'invalidValues');
 
       return;
     }
@@ -237,8 +270,8 @@ If the problem persist, please contact the Bot Developer.`,
       const maintenance = isMaintenanceAdded(time);
 
       // Avoid duplicate objective - Range of 8 minutes
-      const timeStart = time.subtract(4, 'minute');
-      const timeEnd = time.add(4, 'minute');
+      const timeStart = time.subtract(DUPLICATE_TIME_WINDOW_MINUTES, 'minute');
+      const timeEnd = time.add(DUPLICATE_TIME_WINDOW_MINUTES, 'minute');
 
       const identicalObjectives = await findAllObjective({
         order: [['time', 'ASC']],
@@ -262,23 +295,23 @@ If the problem persist, please contact the Bot Developer.`,
       });
 
       if (identicalObjectives.length > 0) {
-        logger.info({
-          guildId,
-          type: objectiveType,
-          rarity: objectiveRarity,
-          map: objectiveMap,
-          time: objectiveTime,
-        }, 'Objective already exists');
+        logger.info(
+          {
+            guildId,
+            type: objectiveType,
+            rarity: objectiveRarity,
+            map: objectiveMap,
+            time: objectiveTime,
+          },
+          'Objective already exists',
+        );
 
-        await interaction.reply({
-          content: 'It appears that the objective you are trying to add already exists',
-          flags: MessageFlags.Ephemeral,
-        });
+        await replyError(interaction, 'duplicateObjective');
 
         return;
       }
 
-      await createObjective({
+      const created = await createObjective({
         guildId,
         channelId,
         userId,
@@ -289,40 +322,35 @@ If the problem persist, please contact the Bot Developer.`,
         maintenanceAdded: maintenance,
       });
 
+      if (!created) {
+        await replyError(interaction, 'duplicateObjective');
+
+        return;
+      }
+
       await interaction.reply({
         content: `Your objective (${objectiveType}) has been successfully added!
 It will be available at ${time.format('HH:mm')} UTC (<t:${String(time.unix())}:R>) on the map ${objectiveMap}`,
         flags: MessageFlags.Ephemeral,
       });
 
-      // Get all data for this guild and send a new message
+      // Get current objectives for this guild and update the display
       const objectives = await findObjectiveByGuildId(guildId);
+      const currentObjectives = objectives.filter(
+        (objective) => objective.time.getTime() > Date.now(),
+      );
 
-      if (objectives.length > 0 && channel) {
-        const oldObjectives = objectives.filter((objective) => objective.time.getTime() < new Date().getTime());
-        const currentObjectives = objectives.filter((objective) => objective.time.getTime() > new Date().getTime());
+      if (currentObjectives.length > 0 && channel) {
+        await deletePreviousMessage(this.container.client, channel.id);
 
-        // Delete old objectives
-        if (oldObjectives.length > 0) {
-          await deleteObjectivesByIds(oldObjectives.map((o) => o.id));
-        }
+        const batches = getMessage(this.container.client, 'objective', currentObjectives);
 
-        if (currentObjectives.length > 0) {
-          await deletePreviousMessage(this.container.client, channel.id);
-
-          await (channel as TextChannel).send({
-            components: getMessage(this.container.client, 'objective', currentObjectives),
-            flags: MessageFlags.IsComponentsV2,
-          });
-        }
+        await sendMessageBatches(channel as TextChannel, batches);
       }
 
       return;
     }
 
-    await interaction.reply({
-      content: 'There is no objectives to display',
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyError(interaction, 'noObjectives');
   }
 }

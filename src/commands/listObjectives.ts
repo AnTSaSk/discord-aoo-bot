@@ -9,11 +9,17 @@ import {
 // Config
 import { getLogger } from '@/config/logger.js';
 
+// Constants
+import { COOLDOWN_LIST } from '@/constants/config.js';
+
 // Services
-import { deleteObjectivesByIds, findObjectiveByGuildId } from '@/services/objective.service.js';
+import { findObjectiveByGuildId } from '@/services/objective.service.js';
 
 // Tasks
-import { deletePreviousMessage, getMessage } from '@/tasks/message.js';
+import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
+
+// Utils
+import { replyError } from '@/utils/reply.js';
 
 export class ListObjectivesCommand extends Command {
   constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -21,7 +27,7 @@ export class ListObjectivesCommand extends Command {
       ...options,
       name: 'list',
       description: 'Display list of objectives',
-      cooldownDelay: 5_000,
+      cooldownDelay: COOLDOWN_LIST,
     });
   }
 
@@ -38,22 +44,24 @@ export class ListObjectivesCommand extends Command {
     );
   }
 
-  public override async chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<void> {
+  public override async chatInputRun(
+    interaction: Command.ChatInputCommandInteraction,
+  ): Promise<void> {
     const logger = getLogger();
     const guildId = interaction.guildId;
     const channelId = interaction.channelId;
 
     if (!guildId || !channelId) {
-      logger.error({
-        command: 'list',
-        guildId: guildId ?? undefined,
-        channelId,
-      }, 'Command missing required values');
+      logger.error(
+        {
+          command: 'list',
+          guildId: guildId ?? undefined,
+          channelId,
+        },
+        'Command missing required values',
+      );
 
-      await interaction.reply({
-        content: 'Something went wrong, please try again.',
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyError(interaction, 'generic');
 
       return;
     }
@@ -62,66 +70,53 @@ export class ListObjectivesCommand extends Command {
     if (guildId && channelId) {
       const channel = await this.container.client.channels.fetch(channelId);
 
-      // Get all data for this guild and send a new message
+      // Get current objectives for this guild
       const objectives = await findObjectiveByGuildId(guildId);
+      const currentObjectives = objectives.filter(
+        (objective) => objective.time.getTime() > Date.now(),
+      );
 
-      if (objectives.length > 0 && interaction.channel) {
-        const oldObjectives = objectives.filter((objective) => objective.time.getTime() < new Date().getTime());
-        const currentObjectives = objectives.filter((objective) => objective.time.getTime() > new Date().getTime());
+      if (channel) {
+        await deletePreviousMessage(this.container.client, channel.id);
 
-        // Delete old objectives
-        if (oldObjectives.length > 0) {
-          await deleteObjectivesByIds(oldObjectives.map((o) => o.id));
-        }
-
-        if (currentObjectives.length > 0 && channel) {
-          await deletePreviousMessage(this.container.client, channel.id);
-
+        if (currentObjectives.length > 0) {
           await interaction.reply({
             content: 'You can check the list of the objectives below!',
             flags: MessageFlags.Ephemeral,
           });
 
-          logger.info({
-            guildId,
-            userId: interaction.user.id,
-            objectivesCount: currentObjectives.length,
-          }, 'List command executed successfully');
+          logger.info(
+            {
+              guildId,
+              userId: interaction.user.id,
+              objectivesCount: currentObjectives.length,
+            },
+            'List command executed successfully',
+          );
 
-          await (channel as TextChannel).send({
-            components: getMessage(this.container.client, 'objective', currentObjectives),
-            flags: MessageFlags.IsComponentsV2,
-          });
+          const batches = getMessage(this.container.client, 'objective', currentObjectives);
 
-          return;
+          await sendMessageBatches(channel as TextChannel, batches);
+        } else {
+          await replyError(interaction, 'noObjectives');
+
+          logger.info(
+            {
+              guildId,
+              userId: interaction.user.id,
+            },
+            'List command executed - no objectives',
+          );
+
+          const batches = getMessage(this.container.client, 'empty');
+
+          await sendMessageBatches(channel as TextChannel, batches);
         }
-      }
-
-      if (channel) {
-        await deletePreviousMessage(this.container.client, channel.id);
-
-        await interaction.reply({
-          content: 'No objectives to display!',
-          flags: MessageFlags.Ephemeral,
-        });
-
-        logger.info({
-          guildId,
-          userId: interaction.user.id,
-        }, 'List command executed - no objectives');
-
-        await (channel as TextChannel).send({
-          components: getMessage(this.container.client, 'empty'),
-          flags: MessageFlags.IsComponentsV2,
-        });
 
         return;
       }
     }
 
-    await interaction.reply({
-      content: 'No objectives to display',
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyError(interaction, 'noObjectives');
   }
 }

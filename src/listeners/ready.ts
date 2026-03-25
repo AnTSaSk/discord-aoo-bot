@@ -8,6 +8,9 @@ import { getLogger } from '@/config/logger.js';
 // Models
 import ObjectiveModel from '@/models/objective.model.js';
 
+// Constants
+import { CRON_SCHEDULE } from '@/constants/config.js';
+
 // Tasks
 import { cronTask } from '@/tasks/cron.js';
 
@@ -26,13 +29,15 @@ export class ReadyListener extends Listener {
 
     logger.info(`Logged in as ${displayName}`);
 
-    void ObjectiveModel.sync().then(() => {
-      logger.info('All models were synchronized successfully');
-    }).catch((error: unknown) => {
-      logger.error(error, 'Failed to synchronize models');
-    });
+    void ObjectiveModel.sync()
+      .then(() => {
+        logger.info('All models were synchronized successfully');
+      })
+      .catch((error: unknown) => {
+        logger.error(error, 'Failed to synchronize models');
+      });
 
-    cron.schedule('*/30 * * * *', () => {
+    cron.schedule(CRON_SCHEDULE, () => {
       void cronTask(logger, client);
     });
   }

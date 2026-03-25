@@ -3,7 +3,9 @@ import dayjs from 'dayjs';
 import {
   type Message,
   type TextBasedChannel,
+  type TextChannel,
   DiscordAPIError,
+  MessageFlags,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
@@ -18,7 +20,7 @@ import { getRequiredSecret } from '@/utils/secrets.js';
 
 dayjs.extend(utc);
 
-// Constants
+import { MAX_COMPONENTS_PER_MESSAGE, MESSAGE_FETCH_LIMIT } from '@/constants/config.js';
 import {
   RARITY_4_4,
   RARITY_5_4,
@@ -49,7 +51,24 @@ interface ObjectiveIndex {
 
 type MessageComponent = TextDisplayBuilder | SeparatorBuilder;
 
-export const deletePreviousMessage = async (client: SapphireClient, channelId: string): Promise<void> => {
+const splitIntoBatches = (components: MessageComponent[]): MessageComponent[][] => {
+  if (components.length <= MAX_COMPONENTS_PER_MESSAGE) {
+    return [components];
+  }
+
+  const batches: MessageComponent[][] = [];
+
+  for (let i = 0; i < components.length; i += MAX_COMPONENTS_PER_MESSAGE) {
+    batches.push(components.slice(i, i + MAX_COMPONENTS_PER_MESSAGE));
+  }
+
+  return batches;
+};
+
+export const deletePreviousMessage = async (
+  client: SapphireClient,
+  channelId: string,
+): Promise<void> => {
   const logger = getLogger();
   let deletedCount = 0;
   let failedCount = 0;
@@ -73,26 +92,24 @@ export const deletePreviousMessage = async (client: SapphireClient, channelId: s
     }
 
     // Fetch recent messages
-    const messages = await channel.messages.fetch({ limit: 10 });
+    const messages = await channel.messages.fetch({ limit: MESSAGE_FETCH_LIMIT });
 
     const clientId = getRequiredSecret('APP_CLIENT_ID', 'Discord client ID');
 
-    const botMessages = messages.filter((message: Message) =>
-      message.author.id === clientId,
-    );
+    const botMessages = messages.filter((message: Message) => message.author.id === clientId);
 
-    logger.info({
-      channelId,
-      totalMessages: messages.size,
-      botMessages: botMessages.size,
-    }, 'Fetched messages for deletion');
+    logger.info(
+      {
+        channelId,
+        totalMessages: messages.size,
+        botMessages: botMessages.size,
+      },
+      'Fetched messages for deletion',
+    );
 
     for (const message of botMessages.values()) {
       if (!message.deletable) {
-        logger.info(
-          { messageId: message.id, channelId },
-          'Message not deletable, skipping',
-        );
+        logger.info({ messageId: message.id, channelId }, 'Message not deletable, skipping');
         continue;
       }
 
@@ -101,10 +118,7 @@ export const deletePreviousMessage = async (client: SapphireClient, channelId: s
 
         deletedCount++;
 
-        logger.debug(
-          { messageId: message.id, channelId },
-          'Successfully deleted bot message',
-        );
+        logger.debug({ messageId: message.id, channelId }, 'Successfully deleted bot message');
       } catch (error) {
         failedCount++;
 
@@ -144,15 +158,9 @@ export const deletePreviousMessage = async (client: SapphireClient, channelId: s
       }
     }
 
-    logger.info(
-      { channelId, deletedCount, failedCount },
-      'Completed message deletion',
-    );
+    logger.info({ channelId, deletedCount, failedCount }, 'Completed message deletion');
   } catch (error) {
-    logger.error(
-      { error, channelId },
-      'Failed to delete previous messages in channel',
-    );
+    logger.error({ error, channelId }, 'Failed to delete previous messages in channel');
   }
 };
 
@@ -167,11 +175,12 @@ const displayObjective = (client: SapphireClient, data: Objective[]): MessageCom
     });
   });
 
-  const objectiveNode = data.filter((item) =>
-    item.type === TYPE_NODE_FIBER ||
-    item.type === TYPE_NODE_HIDE ||
-    item.type === TYPE_NODE_ORE ||
-    item.type === TYPE_NODE_WOOD,
+  const objectiveNode = data.filter(
+    (item) =>
+      item.type === TYPE_NODE_FIBER ||
+      item.type === TYPE_NODE_HIDE ||
+      item.type === TYPE_NODE_ORE ||
+      item.type === TYPE_NODE_WOOD,
   );
   const objectiveCore = data.filter((item) => item.type === TYPE_CORE);
   const objectiveVortex = data.filter((item) => item.type === TYPE_VORTEX);
@@ -192,8 +201,7 @@ const displayObjective = (client: SapphireClient, data: Objective[]): MessageCom
           break;
       }
 
-      const textDisplayCategoryName = new TextDisplayBuilder()
-        .setContent(categoryName);
+      const textDisplayCategoryName = new TextDisplayBuilder().setContent(categoryName);
 
       content.push(textDisplayCategoryName);
 
@@ -227,11 +235,10 @@ const displayObjective = (client: SapphireClient, data: Objective[]): MessageCom
         const maintenance = item.maintenanceAdded ? ':white_check_mark:' : ':x:';
         const user = client.users.cache.find((u) => u.id === item.userId);
 
-        const textDisplayList = new TextDisplayBuilder()
-          .setContent(
-            `- #${String(itemData?.index ?? 0)} — ${objectiveRarity} —— **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
+        const textDisplayList = new TextDisplayBuilder().setContent(
+          `- #${String(itemData?.index ?? 0)} — ${objectiveRarity} —— **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
 -# Maintenance added: ${maintenance} —— Objective added by ${user?.displayName ?? 'Unknown'}`,
-          );
+        );
 
         content.push(textDisplayList);
       });
@@ -262,7 +269,23 @@ Use command \`/add\` to create a new one!`,
   return content;
 };
 
-export const getMessage = (client: SapphireClient, type: string, data?: Objective[]): MessageComponent[] => {
+export const sendMessageBatches = async (
+  channel: TextChannel,
+  batches: MessageComponent[][],
+): Promise<void> => {
+  for (const batch of batches) {
+    await channel.send({
+      components: batch,
+      flags: MessageFlags.IsComponentsV2,
+    });
+  }
+};
+
+export const getMessage = (
+  client: SapphireClient,
+  type: string,
+  data?: Objective[],
+): MessageComponent[][] => {
   let content: MessageComponent[] = [];
 
   switch (type) {
@@ -274,5 +297,5 @@ export const getMessage = (client: SapphireClient, type: string, data?: Objectiv
       break;
   }
 
-  return content;
+  return splitIntoBatches(content);
 };

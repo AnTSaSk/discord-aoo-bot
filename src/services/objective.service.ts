@@ -1,4 +1,4 @@
-import { Op, type FindOptions, type InferAttributes } from '@sequelize/core';
+import { Op, UniqueConstraintError, type FindOptions, type InferAttributes } from '@sequelize/core';
 
 // Config
 import { getLogger } from '@/config/logger.js';
@@ -6,7 +6,9 @@ import { getLogger } from '@/config/logger.js';
 // Models
 import ObjectiveModel, { type Objective } from '@/models/objective.model.js';
 
-export const findAllObjective = async (options?: FindOptions<InferAttributes<Objective>>): Promise<Objective[]> => {
+export const findAllObjective = async (
+  options?: FindOptions<InferAttributes<Objective>>,
+): Promise<Objective[]> => {
   const logger = getLogger();
   const startTime = Date.now();
 
@@ -14,11 +16,14 @@ export const findAllObjective = async (options?: FindOptions<InferAttributes<Obj
     const objectives = await ObjectiveModel.findAll(options);
     const duration = Date.now() - startTime;
 
-    logger.debug({
-      count: objectives.length,
-      duration,
-      where: options?.where,
-    }, 'findAllObjective completed');
+    logger.debug(
+      {
+        count: objectives.length,
+        duration,
+        where: options?.where,
+      },
+      'findAllObjective completed',
+    );
 
     return objectives;
   } catch (error) {
@@ -39,11 +44,14 @@ export const findObjectiveByGuildId = async (guildId: string): Promise<Objective
     });
     const duration = Date.now() - startTime;
 
-    logger.debug({
-      guildId,
-      count: objectives.length,
-      duration,
-    }, 'Found objectives for guild');
+    logger.debug(
+      {
+        guildId,
+        count: objectives.length,
+        duration,
+      },
+      'Found objectives for guild',
+    );
 
     return objectives;
   } catch (error) {
@@ -70,8 +78,11 @@ export const findObjectiveById = async (id: string): Promise<Objective[]> => {
 };
 
 export const createObjective = async (
-  data: Pick<Objective, 'guildId' | 'channelId' | 'userId' | 'type' | 'rarity' | 'map' | 'time' | 'maintenanceAdded'>,
-): Promise<Objective> => {
+  data: Pick<
+    Objective,
+    'guildId' | 'channelId' | 'userId' | 'type' | 'rarity' | 'map' | 'time' | 'maintenanceAdded'
+  >,
+): Promise<Objective | null> => {
   const logger = getLogger();
   const startTime = Date.now();
 
@@ -88,17 +99,26 @@ export const createObjective = async (
     });
     const duration = Date.now() - startTime;
 
-    logger.info({
-      objectiveId: objective.id,
-      guildId: data.guildId,
-      type: data.type,
-      rarity: data.rarity,
-      map: data.map,
-      duration,
-    }, 'Objective created successfully');
+    logger.info(
+      {
+        objectiveId: objective.id,
+        guildId: data.guildId,
+        type: data.type,
+        rarity: data.rarity,
+        map: data.map,
+        duration,
+      },
+      'Objective created successfully',
+    );
 
     return objective;
   } catch (error) {
+    if (error instanceof UniqueConstraintError) {
+      logger.info({ data }, 'Duplicate objective rejected by DB constraint');
+
+      return null;
+    }
+
     logger.error({ error, data }, 'Failed to create objective');
 
     throw error;

@@ -9,13 +9,23 @@ import {
 } from 'discord.js';
 
 // Config
+import database from '@/config/db.js';
 import { getLogger } from '@/config/logger.js';
 
+// Constants
+import { COOLDOWN_DEFAULT } from '@/constants/config.js';
+
+// Models
+import ObjectiveModel from '@/models/objective.model.js';
+
 // Services
-import { deleteObjective, findObjectiveByGuildId } from '@/services/objective.service.js';
+import { findObjectiveByGuildId } from '@/services/objective.service.js';
 
 // Tasks
-import { deletePreviousMessage, getMessage } from '@/tasks/message.js';
+import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
+
+// Utils
+import { replyError } from '@/utils/reply.js';
 
 export class RemoveObjectiveCommand extends Command {
   constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -23,7 +33,7 @@ export class RemoveObjectiveCommand extends Command {
       ...options,
       name: 'remove',
       description: 'Remove an objective from the list',
-      cooldownDelay: 2_000,
+      cooldownDelay: COOLDOWN_DEFAULT,
     });
   }
 
@@ -38,30 +48,33 @@ export class RemoveObjectiveCommand extends Command {
         .setIntegrationTypes(integrationTypes)
         .setContexts(contexts)
         .addStringOption((option) =>
-          option.setName('index')
+          option
+            .setName('index')
             .setDescription('Write the index number display as #[INDEX] from the objective line')
             .setRequired(true),
         ),
     );
   }
 
-  public override async chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<void> {
+  public override async chatInputRun(
+    interaction: Command.ChatInputCommandInteraction,
+  ): Promise<void> {
     const logger = getLogger();
     const guildId = interaction.guildId;
     const channelId = interaction.channelId;
     const objectiveIndex = interaction.options.getString('index')?.replace(/\D/g, '');
 
     if (!guildId || !objectiveIndex) {
-      logger.error({
-        command: 'remove',
-        guildId: guildId ?? undefined,
-        objectiveIndex: objectiveIndex ?? undefined,
-      }, 'Command missing required values');
+      logger.error(
+        {
+          command: 'remove',
+          guildId: guildId ?? undefined,
+          objectiveIndex: objectiveIndex ?? undefined,
+        },
+        'Command missing required values',
+      );
 
-      await interaction.reply({
-        content: 'Something went wrong, please try again.',
-        flags: MessageFlags.Ephemeral,
-      });
+      await replyError(interaction, 'generic');
 
       return;
     }
@@ -74,22 +87,18 @@ export class RemoveObjectiveCommand extends Command {
       const objectives = await findObjectiveByGuildId(guildId);
 
       if (objectives.length === 0 || parseInt(objectiveIndex, 10) > objectives.length) {
-        await interaction.reply({
-          content: 'We cannot find the objective you want to remove',
-          flags: MessageFlags.Ephemeral,
-        });
+        await replyError(interaction, 'objectiveNotFound');
 
         return;
       }
 
       if (objectives.length > 0 && interaction.channel) {
-        const objective = objectives.find((_item, index) => (index + 1) === parseInt(objectiveIndex, 10));
+        const objective = objectives.find(
+          (_item, index) => index + 1 === parseInt(objectiveIndex, 10),
+        );
 
         if (!objective) {
-          await interaction.reply({
-            content: 'We cannot find the objective you want to remove',
-            flags: MessageFlags.Ephemeral,
-          });
+          await replyError(interaction, 'objectiveNotFound');
 
           return;
         }
@@ -98,19 +107,40 @@ export class RemoveObjectiveCommand extends Command {
         const guildChannel = channel as GuildChannel;
         const userPermissions = guildChannel.permissionsFor(interaction.user.id);
         const isAdmin = userPermissions?.has(PermissionsBitField.Flags.Administrator) ?? false;
-        const canManageMessages = userPermissions?.has(PermissionsBitField.Flags.ManageMessages) ?? false;
+        const canManageMessages =
+          userPermissions?.has(PermissionsBitField.Flags.ManageMessages) ?? false;
         const isOwner = interaction.user.id === objective.userId;
 
         if (!isAdmin && !canManageMessages && !isOwner) {
-          await interaction.reply({
-            content: 'You don\'t have permission to remove this objective!',
-            flags: MessageFlags.Ephemeral,
-          });
+          await replyError(interaction, 'permissionDenied');
 
           return;
         }
 
-        await deleteObjective(objective.id);
+        // Atomic delete + re-fetch in a single transaction
+        const remainingObjectives = await database.transaction(async (transaction) => {
+          await ObjectiveModel.destroy({ where: { id: objective.id }, transaction });
+
+          return ObjectiveModel.findAll({
+            where: { guildId },
+            order: [['time', 'ASC']],
+            transaction,
+          });
+        });
+
+        const currentObjectives = remainingObjectives.filter((o) => o.time.getTime() > Date.now());
+
+        logger.info(
+          {
+            guildId,
+            userId: interaction.user.id,
+            objectiveId: objective.id,
+            objectiveType: objective.type,
+            objectiveMap: objective.map,
+            removedByOwner: interaction.user.id === objective.userId,
+          },
+          'Objective removed successfully',
+        );
 
         if (channel) {
           await deletePreviousMessage(this.container.client, channel.id);
@@ -120,30 +150,15 @@ export class RemoveObjectiveCommand extends Command {
             flags: MessageFlags.Ephemeral,
           });
 
-          logger.info({
-            guildId,
-            userId: interaction.user.id,
-            objectiveId: objective.id,
-            objectiveType: objective.type,
-            objectiveMap: objective.map,
-            removedByOwner: interaction.user.id === objective.userId,
-          }, 'Objective removed successfully');
+          const batches = getMessage(this.container.client, 'objective', currentObjectives);
 
-          const remainingObjectives = objectives.filter((o) => o.id !== objective.id);
-
-          await (channel as TextChannel).send({
-            components: getMessage(this.container.client, 'objective', remainingObjectives),
-            flags: MessageFlags.IsComponentsV2,
-          });
+          await sendMessageBatches(channel as TextChannel, batches);
         }
 
         return;
       }
     }
 
-    await interaction.reply({
-      content: 'No objective to remove',
-      flags: MessageFlags.Ephemeral,
-    });
+    await replyError(interaction, 'noObjectives');
   }
 }
