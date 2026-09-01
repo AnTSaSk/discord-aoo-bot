@@ -5,20 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-01
 
 ### Added
 
+- `/edit` command to modify an objective without removing and re-adding it
+- Flexible time input — `1h30`, `90` and `1h` are all accepted
+- Message pagination for large objective lists
+- Automated test suite
+- Additional Discord event listeners
 - Unique database constraint on objectives (`guildId`, `type`, `rarity`, `map`, `time`)
-- Message component batching to respect Discord's 40-component limit
-- Centralized error reply utility for consistent user-facing messages
 
 ### Changed
 
+- Objective indexes now resolve against active objectives only
+- Centralized error messages for consistent user-facing replies
 - Extracted magic numbers to named constants
 
 ### Fixed
 
+- Your server nickname is shown instead of your account name
 - Cron task uses atomic batch delete to prevent race conditions
 - Expired objective cleanup centralized in cron task
 
@@ -74,6 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated from SQLite to PostgreSQL
 - Cron schedule changed from daily to every 30 minutes
 
-[unreleased]: https://github.com/AnTSaSk/discord-aoo-bot/compare/v0.1.1...HEAD
+[0.2.0]: https://github.com/AnTSaSk/discord-aoo-bot/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/AnTSaSk/discord-aoo-bot/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AnTSaSk/discord-aoo-bot/releases/tag/v0.1.0

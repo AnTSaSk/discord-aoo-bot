@@ -33,9 +33,6 @@
 - :white_check_mark: Edit command (`/edit`) to modify objectives without remove/add
 - :white_check_mark: More reliable objective targeting when timers expire
 - :white_check_mark: Additional Discord event listeners
-
-## v0.2.1
-
 - :white_check_mark: Fix: show your server nickname instead of your account name
 
 ## v0.2.2
