@@ -1,5 +1,5 @@
 // Models
-import ObjectiveModel from '@/models/objective.model.js';
+import { getObjectiveModel } from '@/models/objective.model.js';
 
-void ObjectiveModel.sync({ force: true });
-// ObjectiveModel.sync({ alter: true });
+void getObjectiveModel().sync({ force: true });
+// getObjectiveModel().sync({ alter: true });

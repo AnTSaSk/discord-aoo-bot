@@ -1,0 +1,506 @@
+import { Command } from '@sapphire/framework';
+import {
+  ApplicationIntegrationType,
+  InteractionContextType,
+  MessageFlags,
+  type GuildChannel,
+  type TextChannel,
+  type SlashCommandStringOption,
+} from 'discord.js';
+import utc from 'dayjs/plugin/utc.js';
+import dayjs from 'dayjs';
+
+// Config
+import { getLogger } from '@/config/logger.js';
+
+// Constants
+import { COOLDOWN_DEFAULT } from '@/constants/config.js';
+import { MAPS } from '@/constants/map.js';
+import {
+  RARITIES,
+  RARITY_4_4,
+  RARITY_5_4,
+  RARITY_6_4,
+  RARITY_7_4,
+  RARITY_8_4,
+  RARITY_COMMON,
+  RARITY_EPIC,
+  RARITY_LEGENDARY,
+  RARITY_RARE,
+} from '@/constants/rarity.js';
+import {
+  TYPE_CORE,
+  TYPE_NODE_FIBER,
+  TYPE_NODE_HIDE,
+  TYPE_NODE_ORE,
+  TYPE_NODE_WOOD,
+  TYPE_VORTEX,
+  TYPES,
+} from '@/constants/type.js';
+
+// Models
+import type { Objective } from '@/models/objective.model.js';
+
+// Services
+import { getActiveObjectives, updateObjective } from '@/services/objective.service.js';
+
+// Tasks
+import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
+import { getRelativeTime, isMaintenanceAdded, parseTimeInput } from '@/tasks/date.js';
+
+// Utils
+import { isDuplicateObjective } from '@/utils/duplicateCheck.js';
+import {
+  composeAutocompleteValue,
+  computeFingerprint,
+  decomposeAutocompleteValue,
+} from '@/utils/objectiveFingerprint.js';
+import { resolveObjectiveIndex } from '@/utils/objectiveIndex.js';
+import { isValidTypeRarityCombination } from '@/utils/objectiveValidation.js';
+import { canModifyObjective } from '@/utils/permissions.js';
+import { replyError } from '@/utils/reply.js';
+
+dayjs.extend(utc);
+
+interface EditableFields {
+  type?: string;
+  rarity?: string;
+  map?: string;
+  time?: Date;
+  maintenanceAdded?: boolean;
+}
+
+export class EditObjectiveCommand extends Command {
+  constructor(context: Command.LoaderContext, options: Command.Options) {
+    super(context, {
+      ...options,
+      name: 'edit',
+      description: 'Edit an existing objective',
+      cooldownDelay: COOLDOWN_DEFAULT,
+    });
+  }
+
+  public override registerApplicationCommands(registry: Command.Registry): void {
+    const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
+    const contexts: InteractionContextType[] = [InteractionContextType.Guild];
+
+    registry.registerChatInputCommand((builder) =>
+      builder
+        .setName(this.name)
+        .setDescription(this.description)
+        .setIntegrationTypes(integrationTypes)
+        .setContexts(contexts)
+        .addStringOption((option) =>
+          option
+            .setName('index')
+            .setDescription('Write the index number display as #[INDEX] from the objective line')
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((option: SlashCommandStringOption) =>
+          option
+            .setName('type')
+            .setDescription('Type of objective')
+            .setRequired(false)
+            .setAutocomplete(true),
+        )
+        .addStringOption((option: SlashCommandStringOption) =>
+          option
+            .setName('rarity')
+            .setDescription('Rarity of the objective')
+            .setRequired(false)
+            .setAutocomplete(true),
+        )
+        .addStringOption((option: SlashCommandStringOption) =>
+          option
+            .setName('map')
+            .setDescription('Name of the map where the objective is')
+            .setRequired(false)
+            .setAutocomplete(true),
+        )
+        .addStringOption((option: SlashCommandStringOption) =>
+          option
+            .setName('time')
+            .setDescription(
+              'Time remaining. Accepted formats: 1:30, 02:30, 1h30, 1h30m, 1h 30, 1h 30m, 1h, 90, 45m, 90m',
+            )
+            .setRequired(false)
+            .setAutocomplete(false),
+        ),
+    );
+  }
+
+  public override async autocompleteRun(
+    interaction: Command.AutocompleteInteraction,
+  ): Promise<void> {
+    const focusedOption = interaction.options.getFocused(true);
+
+    if (focusedOption.name === 'index') {
+      const guildId = interaction.guildId;
+
+      if (!guildId) {
+        await interaction.respond([]);
+
+        return;
+      }
+
+      const activeObjectives = await getActiveObjectives(guildId);
+      const choices = activeObjectives.slice(0, 25).map((objective, index) => {
+        const position = index + 1;
+        const fingerprint = computeFingerprint(objective);
+        const time = dayjs(objective.time).utc().format('HH:mm');
+
+        return {
+          name: `#${String(position)} — ${objective.type} ${objective.rarity} ${objective.map} (${time} UTC)`,
+          value: composeAutocompleteValue(position, fingerprint),
+        };
+      });
+
+      await interaction.respond(choices);
+
+      return;
+    }
+
+    const typeOption = interaction.options.getString('type');
+    const rarityOption = interaction.options.getString('rarity');
+    let choices: string[] = [];
+
+    switch (focusedOption.name) {
+      case 'type':
+        choices = TYPES;
+
+        if (rarityOption) {
+          switch (rarityOption) {
+            case RARITY_4_4:
+            case RARITY_5_4:
+            case RARITY_6_4:
+            case RARITY_7_4:
+            case RARITY_8_4:
+              choices = choices.filter(
+                (choice) =>
+                  choice === TYPE_NODE_FIBER ||
+                  choice === TYPE_NODE_HIDE ||
+                  choice === TYPE_NODE_ORE ||
+                  choice === TYPE_NODE_WOOD,
+              );
+              break;
+
+            case RARITY_COMMON:
+            case RARITY_RARE:
+            case RARITY_EPIC:
+            case RARITY_LEGENDARY:
+              choices = choices.filter((choice) => choice === TYPE_CORE || choice === TYPE_VORTEX);
+              break;
+          }
+        }
+
+        break;
+
+      case 'rarity':
+        choices = RARITIES;
+
+        if (typeOption) {
+          switch (typeOption) {
+            case TYPE_NODE_FIBER:
+            case TYPE_NODE_HIDE:
+            case TYPE_NODE_ORE:
+            case TYPE_NODE_WOOD:
+              choices = choices.filter(
+                (choice) =>
+                  choice === RARITY_4_4 ||
+                  choice === RARITY_5_4 ||
+                  choice === RARITY_6_4 ||
+                  choice === RARITY_7_4 ||
+                  choice === RARITY_8_4,
+              );
+              break;
+
+            case TYPE_CORE:
+            case TYPE_VORTEX:
+              choices = choices.filter(
+                (choice) =>
+                  choice === RARITY_COMMON ||
+                  choice === RARITY_RARE ||
+                  choice === RARITY_EPIC ||
+                  choice === RARITY_LEGENDARY,
+              );
+              break;
+          }
+        }
+
+        break;
+
+      case 'map':
+        choices = MAPS;
+        break;
+    }
+
+    let filteredChoices = focusedOption.value ?
+      choices.filter(
+        (choice) =>
+          choice.toLowerCase().startsWith(focusedOption.value.toLowerCase()) ||
+          choice.toLowerCase().endsWith(focusedOption.value.toLowerCase()) ||
+          choice.toLowerCase().includes(focusedOption.value.toLowerCase()),
+      ) :
+      choices;
+
+    if (filteredChoices.length > 25) {
+      filteredChoices = filteredChoices.slice(0, 25);
+    }
+
+    await interaction.respond(
+      filteredChoices.map((choice) => ({
+        name: choice,
+        value: choice,
+      })),
+    );
+  }
+
+  public override async chatInputRun(
+    interaction: Command.ChatInputCommandInteraction,
+  ): Promise<void> {
+    const logger = getLogger();
+    const guildId = interaction.guildId;
+    const channelId = interaction.channelId;
+    const rawIndex = interaction.options.getString('index');
+    const newType = interaction.options.getString('type');
+    const newRarity = interaction.options.getString('rarity');
+    const newMap = interaction.options.getString('map');
+    const newTime = interaction.options.getString('time');
+
+    if (!guildId || !channelId || !rawIndex) {
+      logger.error(
+        {
+          command: 'edit',
+          guildId: guildId ?? undefined,
+          rawIndex: rawIndex ?? undefined,
+        },
+        'Command missing required values',
+      );
+
+      await replyError(interaction, 'missingValues');
+
+      return;
+    }
+
+    if (
+      (newType !== null && !TYPES.includes(newType)) ||
+      (newRarity !== null && !RARITIES.includes(newRarity)) ||
+      (newMap !== null && !MAPS.includes(newMap))
+    ) {
+      logger.error(
+        {
+          command: 'edit',
+          type: newType,
+          rarity: newRarity,
+          map: newMap,
+        },
+        'Command received incorrect values',
+      );
+
+      await replyError(interaction, 'invalidValues');
+
+      return;
+    }
+
+    const channel = await this.container.client.channels.fetch(channelId);
+    const activeObjectives = await getActiveObjectives(guildId);
+
+    if (activeObjectives.length === 0) {
+      await replyError(interaction, 'noObjectives');
+
+      return;
+    }
+
+    const decomposed = decomposeAutocompleteValue(rawIndex);
+    const carriesFingerprint = rawIndex.includes(':');
+    const indexPart = decomposed.ok ? String(decomposed.index) : rawIndex;
+    const fingerprint = decomposed.ok ? decomposed.fingerprint : undefined;
+
+    // A typed index carries no fingerprint (ADR-0003); a malformed composed value is refused.
+    const objective =
+      carriesFingerprint && !decomposed.ok ?
+        undefined :
+        resolveObjectiveIndex(activeObjectives, indexPart);
+
+    if (
+      !objective ||
+      (fingerprint !== undefined && computeFingerprint(objective) !== fingerprint)
+    ) {
+      logger.info(
+        { guildId, rawIndex },
+        'Objective index could not be resolved against the active list',
+      );
+
+      await replyError(interaction, 'objectiveNotFound');
+
+      if (channel) {
+        await deletePreviousMessage(this.container.client, channel.id);
+
+        const batches = await getMessage(this.container.client, 'objective', activeObjectives);
+
+        await sendMessageBatches(channel as TextChannel, batches);
+      }
+
+      return;
+    }
+
+    // Check permissions
+    const guildChannel = interaction.channel as GuildChannel;
+    const userPermissions = guildChannel.permissionsFor(interaction.user.id);
+    const canModify = canModifyObjective({
+      userPermissions,
+      userId: interaction.user.id,
+      objectiveOwnerId: objective.userId,
+    });
+
+    if (!canModify) {
+      await replyError(interaction, 'permissionDenied');
+
+      return;
+    }
+
+    const fields: EditableFields = {};
+
+    if (newType !== null) {
+      fields.type = newType;
+    }
+
+    if (newRarity !== null) {
+      fields.rarity = newRarity;
+    }
+
+    if (newMap !== null) {
+      fields.map = newMap;
+    }
+
+    if (Object.keys(fields).length === 0 && newTime === null) {
+      await interaction.reply({
+        content: 'No changes were supplied, nothing to update.',
+        flags: MessageFlags.Ephemeral,
+      });
+
+      return;
+    }
+
+    const resultingType = fields.type ?? objective.type;
+    const resultingRarity = fields.rarity ?? objective.rarity;
+
+    if (!isValidTypeRarityCombination(resultingType, resultingRarity)) {
+      logger.error(
+        {
+          command: 'edit',
+          type: resultingType,
+          rarity: resultingRarity,
+        },
+        'Command received invalid resulting type/rarity combination',
+      );
+
+      await replyError(interaction, 'invalidTypeRarity');
+
+      return;
+    }
+
+    let parsedTime: Date | undefined;
+
+    if (newTime !== null) {
+      const parseResult = parseTimeInput(newTime);
+
+      if (!parseResult.ok) {
+        await replyError(
+          interaction,
+          parseResult.reason === 'range' ? 'timeOutOfRange' : 'invalidTimeFormat',
+        );
+
+        return;
+      }
+
+      const relativeTime = getRelativeTime(new Date(), newTime);
+
+      parsedTime = relativeTime.toDate();
+      fields.time = parsedTime;
+      fields.maintenanceAdded = isMaintenanceAdded(relativeTime);
+    }
+
+    const resultingMap = fields.map ?? objective.map;
+    const resultingTime = parsedTime ?? objective.time;
+
+    const isDuplicate = isDuplicateObjective(
+      {
+        guildId,
+        type: resultingType,
+        rarity: resultingRarity,
+        map: resultingMap,
+        time: resultingTime,
+      },
+      activeObjectives,
+      { excludeId: objective.id },
+    );
+
+    if (isDuplicate) {
+      logger.info(
+        {
+          guildId,
+          type: resultingType,
+          rarity: resultingRarity,
+          map: resultingMap,
+        },
+        'Objective already exists',
+      );
+
+      await replyError(interaction, 'duplicateObjective');
+
+      return;
+    }
+
+    const updated = await updateObjective(guildId, objective.id, fields);
+
+    if (!updated) {
+      await replyError(interaction, 'duplicateObjective');
+
+      return;
+    }
+
+    const changes = this.describeChanges(objective, fields);
+
+    await interaction.reply({
+      content: `Your objective has been successfully updated!
+${changes.join('\n')}`,
+      flags: MessageFlags.Ephemeral,
+    });
+
+    if (channel) {
+      await deletePreviousMessage(this.container.client, channel.id);
+
+      const remainingObjectives = await getActiveObjectives(guildId);
+      const batches = await getMessage(this.container.client, 'objective', remainingObjectives);
+
+      await sendMessageBatches(channel as TextChannel, batches);
+    }
+  }
+
+  private describeChanges(objective: Objective, fields: EditableFields): string[] {
+    const changes: string[] = [];
+
+    if (fields.type !== undefined && fields.type !== objective.type) {
+      changes.push(`type: ${objective.type} → ${fields.type}`);
+    }
+
+    if (fields.rarity !== undefined && fields.rarity !== objective.rarity) {
+      changes.push(`rarity: ${objective.rarity} → ${fields.rarity}`);
+    }
+
+    if (fields.map !== undefined && fields.map !== objective.map) {
+      changes.push(`map: ${objective.map} → ${fields.map}`);
+    }
+
+    if (fields.time !== undefined) {
+      const oldTime = dayjs(objective.time).utc().format('HH:mm');
+      const newTime = dayjs(fields.time).utc().format('HH:mm');
+
+      changes.push(`time: ${oldTime} → ${newTime}`);
+    }
+
+    return changes;
+  }
+}

@@ -32,6 +32,8 @@ ecosystem.config.cjs
 *.sln
 *.sw?
 
-# Claude Code
+# AI
 CLAUDE.md
 .claude/
+INTERVIEW.md
+STATE.md

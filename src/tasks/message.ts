@@ -1,6 +1,7 @@
 import utc from 'dayjs/plugin/utc.js';
 import dayjs from 'dayjs';
 import {
+  type Guild,
   type Message,
   type TextBasedChannel,
   type TextChannel,
@@ -164,7 +165,83 @@ export const deletePreviousMessage = async (
   }
 };
 
-const displayObjective = (client: SapphireClient, data: Objective[]): MessageComponent[] => {
+const UNKNOWN_AUTHOR = 'Unknown';
+
+// Discord API error code for a member that is not part of the guild
+const UNKNOWN_MEMBER_CODE = 10007;
+
+const isUnknownMember = (error: unknown): boolean =>
+  error instanceof DiscordAPIError && error.code === UNKNOWN_MEMBER_CODE;
+
+const resolveAuthorName = async (
+  client: SapphireClient,
+  guild: Guild | undefined,
+  userId: string,
+  guildId: string,
+): Promise<string> => {
+  const logger = getLogger();
+
+  if (guild) {
+    try {
+      const member = await guild.members.fetch(userId);
+
+      return member.displayName;
+    } catch (error) {
+      if (!isUnknownMember(error)) {
+        logger.warn({ error, guildId, userId }, 'Failed to resolve guild member');
+      }
+    }
+  }
+
+  try {
+    const user = await client.users.fetch(userId);
+
+    return user.displayName;
+  } catch {
+    return UNKNOWN_AUTHOR;
+  }
+};
+
+const resolveAuthorNames = async (
+  client: SapphireClient,
+  data: Objective[],
+): Promise<Map<string, string>> => {
+  const names = new Map<string, string>();
+
+  if (data.length === 0) {
+    return names;
+  }
+
+  const logger = getLogger();
+  const guildId = data[0].guildId;
+  const userIds = [...new Set(data.map((objective) => objective.userId))];
+
+  let guild: Guild | undefined;
+
+  try {
+    guild = await client.guilds.fetch(guildId);
+  } catch (error) {
+    logger.warn({ error, guildId }, 'Failed to resolve guild for author names');
+  }
+
+  const resolved = await Promise.all(
+    userIds.map(async (userId) => ({
+      userId,
+      name: await resolveAuthorName(client, guild, userId, guildId),
+    })),
+  );
+
+  for (const { userId, name } of resolved) {
+    names.set(userId, name);
+  }
+
+  return names;
+};
+
+const displayObjective = (
+  data: Objective[],
+  authorNames: Map<string, string>,
+): MessageComponent[] => {
   const content: MessageComponent[] = [];
   const objectiveIndex: ObjectiveIndex[] = [];
 
@@ -233,11 +310,11 @@ const displayObjective = (client: SapphireClient, data: Objective[]): MessageCom
 
         const itemData = objectiveIndex.find((o) => o.id === item.id);
         const maintenance = item.maintenanceAdded ? ':white_check_mark:' : ':x:';
-        const user = client.users.cache.find((u) => u.id === item.userId);
+        const authorName = authorNames.get(item.userId) ?? UNKNOWN_AUTHOR;
 
         const textDisplayList = new TextDisplayBuilder().setContent(
           `- #${String(itemData?.index ?? 0)} — ${objectiveRarity} —— **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
--# Maintenance added: ${maintenance} —— Objective added by ${user?.displayName ?? 'Unknown'}`,
+-# Maintenance added: ${maintenance} —— Objective added by ${authorName}`,
         );
 
         content.push(textDisplayList);
@@ -281,17 +358,21 @@ export const sendMessageBatches = async (
   }
 };
 
-export const getMessage = (
+export const getMessage = async (
   client: SapphireClient,
   type: string,
   data?: Objective[],
-): MessageComponent[][] => {
+): Promise<MessageComponent[][]> => {
   let content: MessageComponent[] = [];
 
   switch (type) {
-    case 'objective':
-      content = displayObjective(client, data ?? []);
+    case 'objective': {
+      const objectives = data ?? [];
+      const authorNames = await resolveAuthorNames(client, objectives);
+
+      content = displayObjective(objectives, authorNames);
       break;
+    }
     case 'empty':
       content = displayNoObjective();
       break;

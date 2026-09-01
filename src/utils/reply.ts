@@ -11,6 +11,10 @@ If the problem persist, please contact the Bot Developer.`,
   duplicateObjective: 'It appears that the objective you are trying to add already exists',
   noObjectives: 'No objectives to display',
   generic: 'Something went wrong, please try again.',
+  invalidTimeFormat:
+    'Invalid time format. Accepted formats: 1:30, 02:30, 1h30, 1h30m, 1h 30, 1h 30m, 1h, 90, 45m, 90m',
+  timeOutOfRange: 'The provided time is out of the accepted range',
+  invalidTypeRarity: 'This rarity is not valid for the selected type',
 } as const;
 
 export type ErrorType = keyof typeof ERROR_MESSAGES;

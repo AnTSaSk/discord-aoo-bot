@@ -5,10 +5,10 @@ import type { Logger } from 'pino';
 import { Op } from '@sequelize/core';
 
 // Config
-import database from '@/config/db.js';
+import { getDatabase } from '@/config/db.js';
 
 // Models
-import ObjectiveModel from '@/models/objective.model.js';
+import { getObjectiveModel } from '@/models/objective.model.js';
 
 // Services
 import { findObjectiveByGuildId } from '@/services/objective.service.js';
@@ -31,8 +31,8 @@ export const cronTask = async (logger: Logger, client: Client<true>): Promise<vo
 
   try {
     // Atomic fetch + delete in a single transaction
-    const { deletedCount, guildData } = await database.transaction(async (transaction) => {
-      const objectives = await ObjectiveModel.findAll({
+    const { deletedCount, guildData } = await getDatabase().transaction(async (transaction) => {
+      const objectives = await getObjectiveModel().findAll({
         where: { time: { [Op.lte]: now.toDate() } },
         order: [['time', 'ASC']],
         transaction,
@@ -59,7 +59,7 @@ export const cronTask = async (logger: Logger, client: Client<true>): Promise<vo
       }
 
       // Batch delete all expired objectives in one query
-      const deleted = await ObjectiveModel.destroy({
+      const deleted = await getObjectiveModel().destroy({
         where: { time: { [Op.lte]: now.toDate() } },
         transaction,
       });
@@ -91,11 +91,11 @@ export const cronTask = async (logger: Logger, client: Client<true>): Promise<vo
           );
 
           if (guildObjectives.length > 0) {
-            const batches = getMessage(client, 'objective', guildObjectives);
+            const batches = await getMessage(client, 'objective', guildObjectives);
 
             await sendMessageBatches(channel as TextChannel, batches);
           } else {
-            const batches = getMessage(client, 'empty');
+            const batches = await getMessage(client, 'empty');
 
             await sendMessageBatches(channel as TextChannel, batches);
           }

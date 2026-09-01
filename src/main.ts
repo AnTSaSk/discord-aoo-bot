@@ -1,7 +1,7 @@
 import { SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits, Partials } from 'discord.js';
 
-import database from '@/config/db.js';
+import { getDatabase } from '@/config/db.js';
 import { getLogger } from '@/config/logger.js';
 import { getRequiredSecret } from '@/utils/secrets.js';
 
@@ -19,7 +19,7 @@ let bot: Bot | undefined;
 const main = async (): Promise<void> => {
   const logger = getLogger();
   let client: SapphireClient;
-  const db = database;
+  const db = getDatabase();
 
   // Get Discord token from secret or env var
   const token = getRequiredSecret('APP_BOT_TOKEN', 'Discord bot token');

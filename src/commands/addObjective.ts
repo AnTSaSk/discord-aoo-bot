@@ -26,6 +26,7 @@ import {
   RARITY_LEGENDARY,
   RARITY_RARE,
 } from '@/constants/rarity.js';
+import { isValidTypeRarityCombination } from '@/utils/objectiveValidation.js';
 import {
   TYPE_CORE,
   TYPE_NODE_FIBER,
@@ -45,7 +46,7 @@ import {
 
 // Tasks
 import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
-import { getRelativeTime, isMaintenanceAdded } from '@/tasks/date.js';
+import { getRelativeTime, isMaintenanceAdded, parseTimeInput } from '@/tasks/date.js';
 
 // Utils
 import { replyError } from '@/utils/reply.js';
@@ -94,7 +95,9 @@ export class AddObjectiveCommand extends Command {
         .addStringOption((option: SlashCommandStringOption) =>
           option
             .setName('time')
-            .setDescription('Time remaining in hh:mm format')
+            .setDescription(
+              'Time remaining. Accepted formats: 1:30, 02:30, 1h30, 1h30m, 1h 30, 1h 30m, 1h, 90, 45m, 90m',
+            )
             .setRequired(true)
             .setAutocomplete(false),
         ),
@@ -244,8 +247,7 @@ export class AddObjectiveCommand extends Command {
     if (
       !TYPES.includes(objectiveType) ||
       !RARITIES.includes(objectiveRarity) ||
-      !MAPS.includes(objectiveMap) ||
-      !(/^(?:[01]?\d|2[0-3]):[0-5]\d$/).test(objectiveTime)
+      !MAPS.includes(objectiveMap)
     ) {
       logger.error(
         {
@@ -259,6 +261,45 @@ export class AddObjectiveCommand extends Command {
       );
 
       await replyError(interaction, 'invalidValues');
+
+      return;
+    }
+
+    if (!isValidTypeRarityCombination(objectiveType, objectiveRarity)) {
+      logger.error(
+        {
+          command: 'addObjective',
+          type: objectiveType,
+          rarity: objectiveRarity,
+          map: objectiveMap,
+          time: objectiveTime,
+        },
+        'Command received invalid type/rarity combination',
+      );
+
+      await replyError(interaction, 'invalidTypeRarity');
+
+      return;
+    }
+
+    const parsedTime = parseTimeInput(objectiveTime);
+
+    if (!parsedTime.ok) {
+      logger.error(
+        {
+          command: 'addObjective',
+          type: objectiveType,
+          rarity: objectiveRarity,
+          map: objectiveMap,
+          time: objectiveTime,
+        },
+        'Command received incorrect time value',
+      );
+
+      await replyError(
+        interaction,
+        parsedTime.reason === 'range' ? 'timeOutOfRange' : 'invalidTimeFormat',
+      );
 
       return;
     }
@@ -343,7 +384,7 @@ It will be available at ${time.format('HH:mm')} UTC (<t:${String(time.unix())}:R
       if (currentObjectives.length > 0 && channel) {
         await deletePreviousMessage(this.container.client, channel.id);
 
-        const batches = getMessage(this.container.client, 'objective', currentObjectives);
+        const batches = await getMessage(this.container.client, 'objective', currentObjectives);
 
         await sendMessageBatches(channel as TextChannel, batches);
       }

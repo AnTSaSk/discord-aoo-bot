@@ -94,7 +94,7 @@ export class ListObjectivesCommand extends Command {
             'List command executed successfully',
           );
 
-          const batches = getMessage(this.container.client, 'objective', currentObjectives);
+          const batches = await getMessage(this.container.client, 'objective', currentObjectives);
 
           await sendMessageBatches(channel as TextChannel, batches);
         } else {
@@ -108,7 +108,7 @@ export class ListObjectivesCommand extends Command {
             'List command executed - no objectives',
           );
 
-          const batches = getMessage(this.container.client, 'empty');
+          const batches = await getMessage(this.container.client, 'empty');
 
           await sendMessageBatches(channel as TextChannel, batches);
         }

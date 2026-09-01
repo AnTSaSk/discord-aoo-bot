@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Albion Online Objectives" width="200">
+  <img src="assets/LogoAOO.svg" alt="Albion Online Objectives" width="200">
 </p>
 
 # Discord - Albion Online Objectives
@@ -62,7 +62,7 @@ Use the slash commands described below to add and manage objectives.
 
 - **Node.js** 24+
 - **pnpm** (package manager)
-- **PostgreSQL** 15+
+- **PostgreSQL** 17 *(the deployed instance runs 17; 15+ works but is not what production uses)*
 
 ### Setup
 
@@ -95,6 +95,8 @@ Other available commands:
 ```bash
 pnpm run build    # Compile TypeScript (tsc + tsc-alias)
 pnpm run start    # Run compiled app in production mode
+pnpm run lint     # Run ESLint
+pnpm run test     # Run tests (Vitest)
 ```
 
 ### Environment Variables

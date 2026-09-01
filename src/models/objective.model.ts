@@ -1,13 +1,14 @@
 import {
   DataTypes,
   type Model,
+  type ModelStatic,
   type CreationOptional,
   type InferAttributes,
   type InferCreationAttributes,
 } from '@sequelize/core';
 
 // Config
-import database from '@/config/db.js';
+import { getDatabase } from '@/config/db.js';
 
 export interface Objective extends Model<
   InferAttributes<Objective>,
@@ -26,7 +27,9 @@ export interface Objective extends Model<
   updatedAt: CreationOptional<Date>;
 }
 
-export const ObjectiveModel = database.define<Objective>(
+let instance: ModelStatic<Objective> | undefined;
+
+const defineObjectiveModel = (): ModelStatic<Objective> => getDatabase().define<Objective>(
   'Objective',
   {
     id: {
@@ -91,4 +94,8 @@ export const ObjectiveModel = database.define<Objective>(
   },
 );
 
-export default ObjectiveModel;
+export const getObjectiveModel = (): ModelStatic<Objective> => {
+  instance ??= defineObjectiveModel();
+
+  return instance;
+};

@@ -6,7 +6,7 @@ import cron from 'node-cron';
 import { getLogger } from '@/config/logger.js';
 
 // Models
-import ObjectiveModel from '@/models/objective.model.js';
+import { getObjectiveModel } from '@/models/objective.model.js';
 
 // Constants
 import { CRON_SCHEDULE } from '@/constants/config.js';
@@ -29,7 +29,7 @@ export class ReadyListener extends Listener {
 
     logger.info(`Logged in as ${displayName}`);
 
-    void ObjectiveModel.sync()
+    void getObjectiveModel().sync()
       .then(() => {
         logger.info('All models were synchronized successfully');
       })
