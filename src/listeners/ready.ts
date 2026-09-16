@@ -6,13 +6,15 @@ import cron from 'node-cron';
 import { getLogger } from '@/config/logger.js';
 
 // Models
+import { getGuildSettingsModel } from '@/models/guildSettings.model.js';
 import { getObjectiveModel } from '@/models/objective.model.js';
 
 // Constants
 import { CRON_SCHEDULE } from '@/constants/config.js';
 
 // Tasks
-import { cronTask } from '@/tasks/cron.js';
+import { broadcastAnnouncement } from '@/tasks/announcement.js';
+import { cronTask, registerScheduledTask } from '@/tasks/cron.js';
 
 export class ReadyListener extends Listener {
   constructor(context: Listener.LoaderContext, options: Listener.Options) {
@@ -29,16 +31,24 @@ export class ReadyListener extends Listener {
 
     logger.info(`Logged in as ${displayName}`);
 
-    void getObjectiveModel().sync()
-      .then(() => {
+    void Promise.all([
+      getObjectiveModel().sync(),
+      getGuildSettingsModel().sync(),
+    ])
+      .then(async () => {
         logger.info('All models were synchronized successfully');
+
+        // Broadcast reads guild_settings, so it must wait for the schema
+        await broadcastAnnouncement(client);
       })
       .catch((error: unknown) => {
-        logger.error(error, 'Failed to synchronize models');
+        logger.error(error, 'Failed to synchronize models or broadcast the announcement');
       });
 
-    cron.schedule(CRON_SCHEDULE, () => {
+    const scheduledTask = cron.schedule(CRON_SCHEDULE, () => {
       void cronTask(logger, client);
     });
+
+    registerScheduledTask(scheduledTask);
   }
 }

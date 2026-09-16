@@ -13,31 +13,20 @@ import { getLogger } from '@/config/logger.js';
 
 // Constants
 import { COOLDOWN_DEFAULT, DUPLICATE_TIME_WINDOW_MINUTES } from '@/constants/config.js';
-import { MAPS } from '@/constants/map.js';
+import { MAPS, MAPS_BLACK_ZONE } from '@/constants/map.js';
+import { RARITIES, RARITY_NONE } from '@/constants/rarity.js';
 import {
-  RARITIES,
-  RARITY_4_4,
-  RARITY_5_4,
-  RARITY_6_4,
-  RARITY_7_4,
-  RARITY_8_4,
-  RARITY_COMMON,
-  RARITY_EPIC,
-  RARITY_LEGENDARY,
-  RARITY_RARE,
-} from '@/constants/rarity.js';
-import { isValidTypeRarityCombination } from '@/utils/objectiveValidation.js';
-import {
-  TYPE_CORE,
-  TYPE_NODE_FIBER,
-  TYPE_NODE_HIDE,
-  TYPE_NODE_ORE,
-  TYPE_NODE_WOOD,
-  TYPE_VORTEX,
-  TYPES,
-} from '@/constants/type.js';
+  getMapZoneForType,
+  getRarityFamilyForType,
+  isValidTypeMapCombination,
+  isValidTypeRarityCombination,
+  MAPS_ALL_SORTED,
+} from '@/utils/objectiveValidation.js';
+import { resolveTimeBoundMinutes } from '@/utils/objectiveTimeBounds.js';
+import { TYPE_DRAGON, TYPES } from '@/constants/type.js';
 
 // Services
+import { recordLastUsedChannel } from '@/services/guildSettings.service.js';
 import {
   createObjective,
   findAllObjective,
@@ -81,7 +70,7 @@ export class AddObjectiveCommand extends Command {
         .addStringOption((option: SlashCommandStringOption) =>
           option
             .setName('rarity')
-            .setDescription('Rarity of the objective')
+            .setDescription('Rarity/Tier/Portal size - n/a for Dragon')
             .setRequired(true)
             .setAutocomplete(true),
         )
@@ -110,75 +99,32 @@ export class AddObjectiveCommand extends Command {
     const focusedOption = interaction.options.getFocused(true);
     const typeOption = interaction.options.getString('type');
     const rarityOption = interaction.options.getString('rarity');
+    const mapOption = interaction.options.getString('map');
     let choices: string[] = [];
 
     switch (focusedOption.name) {
-      case 'type':
-        choices = TYPES;
+      case 'type': {
+        const byRarity =
+          rarityOption ?
+            TYPES.filter((type) => getRarityFamilyForType(type)?.has(rarityOption) ?? false) :
+            TYPES;
 
-        if (rarityOption) {
-          switch (rarityOption) {
-            case RARITY_4_4:
-            case RARITY_5_4:
-            case RARITY_6_4:
-            case RARITY_7_4:
-            case RARITY_8_4:
-              choices = choices.filter(
-                (choice) =>
-                  choice === TYPE_NODE_FIBER ||
-                  choice === TYPE_NODE_HIDE ||
-                  choice === TYPE_NODE_ORE ||
-                  choice === TYPE_NODE_WOOD,
-              );
-              break;
-
-            case RARITY_COMMON:
-            case RARITY_RARE:
-            case RARITY_EPIC:
-            case RARITY_LEGENDARY:
-              choices = choices.filter((choice) => choice === TYPE_CORE || choice === TYPE_VORTEX);
-              break;
-          }
-        }
-
+        choices =
+          mapOption ?
+            byRarity.filter((type) => getMapZoneForType(type)?.has(mapOption) ?? false) :
+            byRarity;
         break;
+      }
 
       case 'rarity':
-        choices = RARITIES;
-
-        if (typeOption) {
-          switch (typeOption) {
-            case TYPE_NODE_FIBER:
-            case TYPE_NODE_HIDE:
-            case TYPE_NODE_ORE:
-            case TYPE_NODE_WOOD:
-              choices = choices.filter(
-                (choice) =>
-                  choice === RARITY_4_4 ||
-                  choice === RARITY_5_4 ||
-                  choice === RARITY_6_4 ||
-                  choice === RARITY_7_4 ||
-                  choice === RARITY_8_4,
-              );
-              break;
-
-            case TYPE_CORE:
-            case TYPE_VORTEX:
-              choices = choices.filter(
-                (choice) =>
-                  choice === RARITY_COMMON ||
-                  choice === RARITY_RARE ||
-                  choice === RARITY_EPIC ||
-                  choice === RARITY_LEGENDARY,
-              );
-              break;
-          }
-        }
-
+        choices = typeOption ? [...(getRarityFamilyForType(typeOption) ?? [])] : RARITIES;
         break;
 
       case 'map':
-        choices = MAPS;
+        choices =
+          typeOption && typeOption !== TYPE_DRAGON ?
+            MAPS_BLACK_ZONE :
+            MAPS_ALL_SORTED;
         break;
     }
 
@@ -215,15 +161,11 @@ export class AddObjectiveCommand extends Command {
     const objectiveMap = interaction.options.getString('map');
     const objectiveTime = interaction.options.getString('time');
 
-    if (
-      !guildId ||
-      !channelId ||
-      !userId ||
-      !objectiveType ||
-      !objectiveRarity ||
-      !objectiveMap ||
-      !objectiveTime
-    ) {
+    if (guildId && channelId) {
+      void recordLastUsedChannel(guildId, channelId);
+    }
+
+    if (!guildId || !channelId || !userId || !objectiveType || !objectiveMap || !objectiveTime) {
       logger.error(
         {
           command: 'addObjective',
@@ -243,12 +185,14 @@ export class AddObjectiveCommand extends Command {
       return;
     }
 
+    // The sentinel is not in RARITIES (AC-N6) but is a valid referential value.
+    const rarityIsInvalid =
+      objectiveRarity !== null &&
+      objectiveRarity !== RARITY_NONE &&
+      !RARITIES.includes(objectiveRarity);
+
     // Invalid values
-    if (
-      !TYPES.includes(objectiveType) ||
-      !RARITIES.includes(objectiveRarity) ||
-      !MAPS.includes(objectiveMap)
-    ) {
+    if (!TYPES.includes(objectiveType) || rarityIsInvalid || !MAPS.includes(objectiveMap)) {
       logger.error(
         {
           command: 'addObjective',
@@ -265,12 +209,34 @@ export class AddObjectiveCommand extends Command {
       return;
     }
 
-    if (!isValidTypeRarityCombination(objectiveType, objectiveRarity)) {
+    const admitsRarity = getRarityFamilyForType(objectiveType)?.has(RARITY_NONE) !== true;
+
+    if (!admitsRarity && objectiveRarity !== null && objectiveRarity !== RARITY_NONE) {
+      await replyError(interaction, 'unexpectedRarity');
+
+      return;
+    }
+
+    if (admitsRarity && (objectiveRarity === null || objectiveRarity === RARITY_NONE)) {
+      await replyError(interaction, 'missingRarity');
+
+      return;
+    }
+
+    if (!isValidTypeMapCombination(objectiveType, objectiveMap)) {
+      await replyError(interaction, 'unexpectedRoyalMap');
+
+      return;
+    }
+
+    const resolvedRarity = objectiveType === TYPE_DRAGON ? RARITY_NONE : objectiveRarity!;
+
+    if (!isValidTypeRarityCombination(objectiveType, resolvedRarity)) {
       logger.error(
         {
           command: 'addObjective',
           type: objectiveType,
-          rarity: objectiveRarity,
+          rarity: resolvedRarity,
           map: objectiveMap,
           time: objectiveTime,
         },
@@ -282,14 +248,15 @@ export class AddObjectiveCommand extends Command {
       return;
     }
 
-    const parsedTime = parseTimeInput(objectiveTime);
+    const timeBoundMinutes = resolveTimeBoundMinutes(objectiveType, resolvedRarity);
+    const parsedTime = parseTimeInput(objectiveTime, timeBoundMinutes);
 
     if (!parsedTime.ok) {
       logger.error(
         {
           command: 'addObjective',
           type: objectiveType,
-          rarity: objectiveRarity,
+          rarity: resolvedRarity,
           map: objectiveMap,
           time: objectiveTime,
         },
@@ -324,7 +291,7 @@ export class AddObjectiveCommand extends Command {
             [Op.eq]: objectiveType,
           },
           rarity: {
-            [Op.eq]: objectiveRarity,
+            [Op.eq]: resolvedRarity,
           },
           map: {
             [Op.eq]: objectiveMap,
@@ -340,7 +307,7 @@ export class AddObjectiveCommand extends Command {
           {
             guildId,
             type: objectiveType,
-            rarity: objectiveRarity,
+            rarity: resolvedRarity,
             map: objectiveMap,
             time: objectiveTime,
           },
@@ -357,7 +324,7 @@ export class AddObjectiveCommand extends Command {
         channelId,
         userId,
         type: objectiveType,
-        rarity: objectiveRarity,
+        rarity: resolvedRarity,
         map: objectiveMap,
         time: time.toDate(),
         maintenanceAdded: maintenance,

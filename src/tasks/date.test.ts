@@ -342,3 +342,56 @@ describe('parseTimeInput', () => {
     expect(result).toEqual({ ok: true, minutes: 90 });
   });
 });
+
+// objective-taxonomy AC-9, AC-10, AC-11; time-input-parsing AC-8c — the parser accepts a
+// caller-supplied cap instead of always reading the global MAX_TOTAL_MINUTES.
+describe('parseTimeInput with a caller-supplied cap', () => {
+  // AC-9: a delay above the applicable cap is rejected as out of range, whatever the cap.
+  it('rejects 31 minutes as out of range against a 30-minute cap (Small portal)', () => {
+    const result = parseTimeInput('31', 30);
+
+    expect(result).toEqual({ ok: false, reason: 'range' });
+  });
+
+  it('rejects 61 minutes as out of range against a 60-minute cap (Medium portal)', () => {
+    const result = parseTimeInput('61', 60);
+
+    expect(result).toEqual({ ok: false, reason: 'range' });
+  });
+
+  it('rejects 181 minutes as out of range against a 180-minute cap (Large portal)', () => {
+    const result = parseTimeInput('181', 180);
+
+    expect(result).toEqual({ ok: false, reason: 'range' });
+  });
+
+  // AC-10: a value exactly at the cap is accepted (inclusive bound) and stored unchanged.
+  it('accepts exactly 30 minutes against a 30-minute cap, stored unchanged', () => {
+    const result = parseTimeInput('30', 30);
+
+    expect(result).toEqual({ ok: true, minutes: 30 });
+  });
+
+  // AC-10: a value below the cap is accepted and stored unchanged — no rounding, no completion.
+  it('accepts 10 minutes against a 30-minute cap, stored unchanged (no rounding, no completion)', () => {
+    const result = parseTimeInput('10', 30);
+
+    expect(result).toEqual({ ok: true, minutes: 10 });
+  });
+
+  // AC-11 / AC-8c: an input both malformed and out of range yields the FORMAT error, never range.
+  // "1h90" is malformed (composed-form minutes >= 60) AND its raw numeric reading (90 minutes as
+  // hours+minutes would exceed a 30-minute Small cap) would also be out of range — format must win.
+  it('reports a format error, not range, for "1h90" against a 30-minute cap (malformed AND out of range)', () => {
+    const result = parseTimeInput('1h90', 30);
+
+    expect(result).toEqual({ ok: false, reason: 'format' });
+  });
+
+  // Non-regression: omitting the cap keeps the default 1440-minute ceiling behaviour.
+  it('falls back to the default 1440-minute cap when no cap is supplied', () => {
+    const result = parseTimeInput('1440');
+
+    expect(result).toEqual({ ok: true, minutes: 1440 });
+  });
+});

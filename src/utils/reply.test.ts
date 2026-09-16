@@ -71,3 +71,38 @@ describe('replyError new error keys (command-errors AC-1)', () => {
     },
   );
 });
+
+describe('replyError channel and guild keys (guild-settings AC-4)', () => {
+  it('names the missing permission in the channel refusal message (AC-4)', async () => {
+    const { interaction, reply } = buildInteraction();
+
+    await replyError(interaction, 'channelNotWritable', { permission: 'View Channel' });
+
+    const payload = reply.mock.calls[0]?.[0];
+
+    expect(payload.content).toContain('View Channel');
+    expect(payload.flags).toBe(MessageFlags.Ephemeral);
+  });
+
+  it('names a different missing permission when that one is missing (AC-4)', async () => {
+    const { interaction, reply } = buildInteraction();
+
+    await replyError(interaction, 'channelNotWritable', { permission: 'Send Messages' });
+
+    const payload = reply.mock.calls[0]?.[0];
+
+    expect(payload.content).toContain('Send Messages');
+    expect(payload.content).not.toContain('View Channel');
+  });
+
+  it('gives guildOnly a distinct, non-empty message', async () => {
+    const { interaction, reply } = buildInteraction();
+
+    await replyError(interaction, 'guildOnly');
+
+    const payload = reply.mock.calls[0]?.[0];
+
+    expect(payload.content).toBeTruthy();
+    expect(payload.flags).toBe(MessageFlags.Ephemeral);
+  });
+});

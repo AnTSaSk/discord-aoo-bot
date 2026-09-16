@@ -30,11 +30,17 @@ import {
   RARITY_8_4,
   RARITY_COMMON,
   RARITY_EPIC,
+  RARITY_LARGE,
   RARITY_LEGENDARY,
+  RARITY_MEDIUM,
+  RARITY_NONE,
   RARITY_RARE,
+  RARITY_SMALL,
 } from '@/constants/rarity.js';
 import {
+  TYPE_ANCIENT_LANDS_PORTAL,
   TYPE_CORE,
+  TYPE_DRAGON,
   TYPE_NODE_FIBER,
   TYPE_NODE_HIDE,
   TYPE_NODE_ORE,
@@ -261,8 +267,18 @@ const displayObjective = (
   );
   const objectiveCore = data.filter((item) => item.type === TYPE_CORE);
   const objectiveVortex = data.filter((item) => item.type === TYPE_VORTEX);
+  const objectivePortal = data.filter((item) => item.type === TYPE_ANCIENT_LANDS_PORTAL);
+  const objectiveDragon = data.filter((item) => item.type === TYPE_DRAGON);
 
-  [objectiveNode, objectiveCore, objectiveVortex].forEach((category, categoryIndex) => {
+  const categories = [
+    objectiveNode,
+    objectiveCore,
+    objectiveVortex,
+    objectivePortal,
+    objectiveDragon,
+  ];
+
+  categories.forEach((category, categoryIndex) => {
     if (category.length > 0) {
       let categoryName = '';
 
@@ -275,6 +291,12 @@ const displayObjective = (
           break;
         case 2:
           categoryName = '## Vortex ##';
+          break;
+        case 3:
+          categoryName = '## Ancient Lands Portal ##';
+          break;
+        case 4:
+          categoryName = '## Dragon ##';
           break;
       }
 
@@ -295,16 +317,22 @@ const displayObjective = (
             objectiveRarity = `**${item.rarity} ${item.type}**`;
             break;
           case RARITY_COMMON:
+          case RARITY_SMALL:
             objectiveRarity = `**:green_circle: ${item.rarity}**`;
             break;
           case RARITY_RARE:
+          case RARITY_MEDIUM:
             objectiveRarity = `**:blue_circle: ${item.rarity}**`;
             break;
           case RARITY_EPIC:
             objectiveRarity = `**:purple_circle: ${item.rarity}**`;
             break;
           case RARITY_LEGENDARY:
+          case RARITY_LARGE:
             objectiveRarity = `**:orange_circle: ${item.rarity}**`;
+            break;
+          case RARITY_NONE:
+            objectiveRarity = '';
             break;
         }
 
@@ -312,8 +340,11 @@ const displayObjective = (
         const maintenance = item.maintenanceAdded ? ':white_check_mark:' : ':x:';
         const authorName = authorNames.get(item.userId) ?? UNKNOWN_AUTHOR;
 
+        // No rarity segment (e.g. Dragon): drop its separator too, not just the value.
+        const raritySegment = objectiveRarity.length > 0 ? ` ${objectiveRarity} ——` : '';
+
         const textDisplayList = new TextDisplayBuilder().setContent(
-          `- #${String(itemData?.index ?? 0)} — ${objectiveRarity} —— **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
+          `- #${String(itemData?.index ?? 0)} —${raritySegment} **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
 -# Maintenance added: ${maintenance} —— Objective added by ${authorName}`,
         );
 

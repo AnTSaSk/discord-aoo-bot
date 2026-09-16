@@ -9,6 +9,10 @@ export const RARITY_RARE = 'Blue';
 export const RARITY_EPIC = 'Purple';
 export const RARITY_LEGENDARY = 'Gold';
 
+export const RARITY_SMALL = 'Small';
+export const RARITY_MEDIUM = 'Medium';
+export const RARITY_LARGE = 'Large';
+
 export const RARITIES = [
   RARITY_4_4,
   RARITY_5_4,
@@ -19,4 +23,11 @@ export const RARITIES = [
   RARITY_RARE,
   RARITY_EPIC,
   RARITY_LEGENDARY,
+  RARITY_SMALL,
+  RARITY_MEDIUM,
+  RARITY_LARGE,
 ];
+
+// Sentinel for "no rarity applies" (e.g. Dragon type); deliberately excluded from
+// RARITIES — the Dragon family suggests it directly at autocomplete (ADR-0010).
+export const RARITY_NONE = 'n/a';

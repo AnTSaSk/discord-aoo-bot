@@ -15,33 +15,15 @@ import { getLogger } from '@/config/logger.js';
 
 // Constants
 import { COOLDOWN_DEFAULT } from '@/constants/config.js';
-import { MAPS } from '@/constants/map.js';
-import {
-  RARITIES,
-  RARITY_4_4,
-  RARITY_5_4,
-  RARITY_6_4,
-  RARITY_7_4,
-  RARITY_8_4,
-  RARITY_COMMON,
-  RARITY_EPIC,
-  RARITY_LEGENDARY,
-  RARITY_RARE,
-} from '@/constants/rarity.js';
-import {
-  TYPE_CORE,
-  TYPE_NODE_FIBER,
-  TYPE_NODE_HIDE,
-  TYPE_NODE_ORE,
-  TYPE_NODE_WOOD,
-  TYPE_VORTEX,
-  TYPES,
-} from '@/constants/type.js';
+import { MAPS, MAPS_BLACK_ZONE } from '@/constants/map.js';
+import { RARITIES, RARITY_NONE } from '@/constants/rarity.js';
+import { TYPE_DRAGON, TYPES } from '@/constants/type.js';
 
 // Models
 import type { Objective } from '@/models/objective.model.js';
 
 // Services
+import { recordLastUsedChannel } from '@/services/guildSettings.service.js';
 import { getActiveObjectives, updateObjective } from '@/services/objective.service.js';
 
 // Tasks
@@ -56,7 +38,14 @@ import {
   decomposeAutocompleteValue,
 } from '@/utils/objectiveFingerprint.js';
 import { resolveObjectiveIndex } from '@/utils/objectiveIndex.js';
-import { isValidTypeRarityCombination } from '@/utils/objectiveValidation.js';
+import {
+  getMapZoneForType,
+  getRarityFamilyForType,
+  isValidTypeMapCombination,
+  isValidTypeRarityCombination,
+  MAPS_ALL_SORTED,
+} from '@/utils/objectiveValidation.js';
+import { resolveTimeBoundMinutes } from '@/utils/objectiveTimeBounds.js';
 import { canModifyObjective } from '@/utils/permissions.js';
 import { replyError } from '@/utils/reply.js';
 
@@ -107,7 +96,7 @@ export class EditObjectiveCommand extends Command {
         .addStringOption((option: SlashCommandStringOption) =>
           option
             .setName('rarity')
-            .setDescription('Rarity of the objective')
+            .setDescription('Rarity/Tier/Portal size - n/a for Dragon')
             .setRequired(false)
             .setAutocomplete(true),
         )
@@ -163,75 +152,32 @@ export class EditObjectiveCommand extends Command {
 
     const typeOption = interaction.options.getString('type');
     const rarityOption = interaction.options.getString('rarity');
+    const mapOption = interaction.options.getString('map');
     let choices: string[] = [];
 
     switch (focusedOption.name) {
-      case 'type':
-        choices = TYPES;
+      case 'type': {
+        const byRarity =
+          rarityOption ?
+            TYPES.filter((type) => getRarityFamilyForType(type)?.has(rarityOption) ?? false) :
+            TYPES;
 
-        if (rarityOption) {
-          switch (rarityOption) {
-            case RARITY_4_4:
-            case RARITY_5_4:
-            case RARITY_6_4:
-            case RARITY_7_4:
-            case RARITY_8_4:
-              choices = choices.filter(
-                (choice) =>
-                  choice === TYPE_NODE_FIBER ||
-                  choice === TYPE_NODE_HIDE ||
-                  choice === TYPE_NODE_ORE ||
-                  choice === TYPE_NODE_WOOD,
-              );
-              break;
-
-            case RARITY_COMMON:
-            case RARITY_RARE:
-            case RARITY_EPIC:
-            case RARITY_LEGENDARY:
-              choices = choices.filter((choice) => choice === TYPE_CORE || choice === TYPE_VORTEX);
-              break;
-          }
-        }
-
+        choices =
+          mapOption ?
+            byRarity.filter((type) => getMapZoneForType(type)?.has(mapOption) ?? false) :
+            byRarity;
         break;
+      }
 
       case 'rarity':
-        choices = RARITIES;
-
-        if (typeOption) {
-          switch (typeOption) {
-            case TYPE_NODE_FIBER:
-            case TYPE_NODE_HIDE:
-            case TYPE_NODE_ORE:
-            case TYPE_NODE_WOOD:
-              choices = choices.filter(
-                (choice) =>
-                  choice === RARITY_4_4 ||
-                  choice === RARITY_5_4 ||
-                  choice === RARITY_6_4 ||
-                  choice === RARITY_7_4 ||
-                  choice === RARITY_8_4,
-              );
-              break;
-
-            case TYPE_CORE:
-            case TYPE_VORTEX:
-              choices = choices.filter(
-                (choice) =>
-                  choice === RARITY_COMMON ||
-                  choice === RARITY_RARE ||
-                  choice === RARITY_EPIC ||
-                  choice === RARITY_LEGENDARY,
-              );
-              break;
-          }
-        }
-
+        choices = typeOption ? [...(getRarityFamilyForType(typeOption) ?? [])] : RARITIES;
         break;
 
       case 'map':
-        choices = MAPS;
+        choices =
+          typeOption && typeOption !== TYPE_DRAGON ?
+            MAPS_BLACK_ZONE :
+            MAPS_ALL_SORTED;
         break;
     }
 
@@ -268,6 +214,10 @@ export class EditObjectiveCommand extends Command {
     const newMap = interaction.options.getString('map');
     const newTime = interaction.options.getString('time');
 
+    if (guildId && channelId) {
+      void recordLastUsedChannel(guildId, channelId);
+    }
+
     if (!guildId || !channelId || !rawIndex) {
       logger.error(
         {
@@ -283,9 +233,13 @@ export class EditObjectiveCommand extends Command {
       return;
     }
 
+    // The sentinel is not in RARITIES (AC-N6) but is a valid referential value.
+    const rarityIsInvalid =
+      newRarity !== null && newRarity !== RARITY_NONE && !RARITIES.includes(newRarity);
+
     if (
       (newType !== null && !TYPES.includes(newType)) ||
-      (newRarity !== null && !RARITIES.includes(newRarity)) ||
+      rarityIsInvalid ||
       (newMap !== null && !MAPS.includes(newMap))
     ) {
       logger.error(
@@ -384,7 +338,34 @@ export class EditObjectiveCommand extends Command {
     }
 
     const resultingType = fields.type ?? objective.type;
+
+    // Dragon admits no rarity: moving to it with none supplied writes the sentinel (AC-19),
+    // replacing whatever rarity the objective previously carried.
+    if (resultingType === TYPE_DRAGON && newRarity === null) {
+      fields.rarity = RARITY_NONE;
+    }
+
     const resultingRarity = fields.rarity ?? objective.rarity;
+    const admitsRarity = getRarityFamilyForType(resultingType)?.has(RARITY_NONE) !== true;
+
+    if (!admitsRarity && resultingRarity !== RARITY_NONE) {
+      await replyError(interaction, 'unexpectedRarity');
+
+      return;
+    }
+
+    // The sentinel is not a rarity: on a type that requires one, it counts as absence (AC-18).
+    if (admitsRarity && resultingRarity === RARITY_NONE) {
+      await replyError(interaction, 'missingRarity');
+
+      return;
+    }
+
+    if (!isValidTypeMapCombination(resultingType, fields.map ?? objective.map)) {
+      await replyError(interaction, 'unexpectedRoyalMap');
+
+      return;
+    }
 
     if (!isValidTypeRarityCombination(resultingType, resultingRarity)) {
       logger.error(
@@ -402,9 +383,10 @@ export class EditObjectiveCommand extends Command {
     }
 
     let parsedTime: Date | undefined;
+    const resultingTimeBoundMinutes = resolveTimeBoundMinutes(resultingType, resultingRarity);
 
     if (newTime !== null) {
-      const parseResult = parseTimeInput(newTime);
+      const parseResult = parseTimeInput(newTime, resultingTimeBoundMinutes);
 
       if (!parseResult.ok) {
         await replyError(
@@ -415,11 +397,22 @@ export class EditObjectiveCommand extends Command {
         return;
       }
 
-      const relativeTime = getRelativeTime(new Date(), newTime);
+      const relativeTime = getRelativeTime(new Date(), newTime, resultingTimeBoundMinutes);
 
       parsedTime = relativeTime.toDate();
       fields.time = parsedTime;
       fields.maintenanceAdded = isMaintenanceAdded(relativeTime);
+    } else {
+      // AC-20: no `time` supplied, but the resulting type/rarity may narrow the cap below the
+      // remaining time already stored. Only the absolute date persists — compare against it, not
+      // against whatever delay was originally typed.
+      const remainingMinutes = dayjs(objective.time).diff(dayjs(), 'minute');
+
+      if (remainingMinutes > resultingTimeBoundMinutes) {
+        await replyError(interaction, 'timeOutOfRange');
+
+        return;
+      }
     }
 
     const resultingMap = fields.map ?? objective.map;

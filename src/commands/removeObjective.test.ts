@@ -7,10 +7,20 @@ import { RARITY_LEGENDARY } from '@/constants/rarity.js';
 import { MAP_ELDERSLEEP, MAP_FARSHORE_BAY } from '@/constants/map.js';
 import type { Objective } from '@/models/objective.model.js';
 
-const { getActiveObjectivesMock, deleteObjectiveMock, canModifyObjectiveMock } = vi.hoisted(() => ({
+const {
+  getActiveObjectivesMock,
+  deleteObjectiveMock,
+  canModifyObjectiveMock,
+  recordLastUsedChannelMock,
+} = vi.hoisted(() => ({
   getActiveObjectivesMock: vi.fn(),
   deleteObjectiveMock: vi.fn(),
   canModifyObjectiveMock: vi.fn(),
+  recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/services/guildSettings.service.js', () => ({
+  recordLastUsedChannel: recordLastUsedChannelMock,
 }));
 
 vi.mock('@/services/objective.service.js', () => ({
@@ -200,5 +210,19 @@ describe('RemoveObjectiveCommand — index resolution against the active list', 
       );
       expect(deleteObjectiveMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('RemoveObjectiveCommand last used channel (guild-settings AC-9)', () => {
+  it('records the interaction channel as the last one used by the guild', async () => {
+    recordLastUsedChannelMock.mockClear();
+    getActiveObjectivesMock.mockResolvedValue([]);
+
+    const command = createCommand();
+    const { interaction } = buildInteraction('1');
+
+    await command.chatInputRun(interaction);
+
+    expect(recordLastUsedChannelMock).toHaveBeenCalledWith('guild-1', 'channel-1');
   });
 });

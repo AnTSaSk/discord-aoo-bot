@@ -1,6 +1,6 @@
 # Roadmap
 
-**Current version: 0.2.0** — everything up to it is live, the rest is planned. <!-- x-release-please-version -->
+**Current version: 0.3.5** — everything up to it is live, the rest is planned. <!-- x-release-please-version -->
 
 ## v0.1.0
 
@@ -35,17 +35,27 @@
 - :white_check_mark: Additional Discord event listeners
 - :white_check_mark: Fix: show your server nickname instead of your account name
 
-## v0.2.2
+## v0.2.1
 
-- Release announcements posted to every server on new versions
+- :white_check_mark: Release announcements posted to every server on new versions
+- :white_check_mark: `/settings` to pick the announcement channel and opt in to `@everyone`
+- :white_check_mark: `/about` with the bot version and the legal links
 
 ## v0.3.0
 
 Albion Online **Dragonfire** support:
 
-- New objective type: Ancient Lands Portal (Small / Medium / Large)
-- New objective type: Dragon attacks
-- Typo guard on portal timers (30 / 60 / 180 min by size)
+- :white_check_mark: New objective type: Ancient Lands Portal (Small / Medium / Large)
+- :white_check_mark: New objective type: Dragon attacks
+- :white_check_mark: Typo guard on portal timers (30 / 60 / 180 min by size)
+
+## v0.3.1
+
+- :white_check_mark: Rarity is required again and back in second position — the `type → rarity → map → time` order is restored
+- :white_check_mark: Dragon attacks: pick `n/a` for the rarity, now offered in one click
+- :white_check_mark: Royal Continent maps added for Dragon attacks (103 new maps); other objectives keep the Black Zone list
+- :white_check_mark: A Royal map on a non-Dragon objective is now refused
+- :white_check_mark: Portal sizes displayed as colour codes: :green_circle: Small, :blue_circle: Medium, :orange_circle: Large
 
 ## v1.0.0
 

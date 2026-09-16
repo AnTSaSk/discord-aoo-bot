@@ -2,6 +2,7 @@ import utc from 'dayjs/plugin/utc.js';
 import dayjs from 'dayjs';
 import { type Client, type TextChannel } from 'discord.js';
 import type { Logger } from 'pino';
+import type { ScheduledTask } from 'node-cron';
 import { Op } from '@sequelize/core';
 
 // Config
@@ -22,6 +23,23 @@ interface GuildData {
   guildId: string;
   channelId: string;
 }
+
+let scheduledTask: ScheduledTask | undefined;
+
+export const registerScheduledTask = (task: ScheduledTask): void => {
+  scheduledTask = task;
+};
+
+export const stopScheduledTask = async (): Promise<void> => {
+  if (!scheduledTask) {
+    return;
+  }
+
+  const task = scheduledTask;
+
+  scheduledTask = undefined;
+  await task.stop();
+};
 
 export const cronTask = async (logger: Logger, client: Client<true>): Promise<void> => {
   const startTime = Date.now();

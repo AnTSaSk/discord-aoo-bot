@@ -19,15 +19,18 @@ const HOUR_SEPARATOR_FORM = /^(\d+)[:.,;](\d{1,2})$/;
 const COMPOSED_FORM = /^(\d+)h(?: ?(\d{1,2})m?)?$/;
 const MINUTES_FORM = /^(\d+)m?$/;
 
-const resolveMinutes = (totalMinutes: number): TimeParseResult => {
-  if (totalMinutes < MIN_TOTAL_MINUTES || totalMinutes > MAX_TOTAL_MINUTES) {
+const resolveMinutes = (totalMinutes: number, maxMinutes: number): TimeParseResult => {
+  if (totalMinutes < MIN_TOTAL_MINUTES || totalMinutes > maxMinutes) {
     return { ok: false, reason: 'range' };
   }
 
   return { ok: true, minutes: totalMinutes };
 };
 
-export const parseTimeInput = (raw: string): TimeParseResult => {
+export const parseTimeInput = (
+  raw: string,
+  maxMinutes: number = MAX_TOTAL_MINUTES,
+): TimeParseResult => {
   const normalized = raw.trim().toLowerCase();
 
   const separatorMatch = HOUR_SEPARATOR_FORM.exec(normalized);
@@ -36,7 +39,7 @@ export const parseTimeInput = (raw: string): TimeParseResult => {
     const hours = Number(separatorMatch[1]);
     const minutes = Number(separatorMatch[2]);
 
-    return resolveMinutes(hours * 60 + minutes);
+    return resolveMinutes(hours * 60 + minutes, maxMinutes);
   }
 
   const composedMatch = COMPOSED_FORM.exec(normalized);
@@ -49,20 +52,20 @@ export const parseTimeInput = (raw: string): TimeParseResult => {
       return { ok: false, reason: 'format' };
     }
 
-    return resolveMinutes(hours * 60 + minutes);
+    return resolveMinutes(hours * 60 + minutes, maxMinutes);
   }
 
   const minutesMatch = MINUTES_FORM.exec(normalized);
 
   if (minutesMatch) {
-    return resolveMinutes(Number(minutesMatch[1]));
+    return resolveMinutes(Number(minutesMatch[1]), maxMinutes);
   }
 
   return { ok: false, reason: 'format' };
 };
 
-export const getRelativeTime = (date: Date, time: string): Dayjs => {
-  const parsed = parseTimeInput(time);
+export const getRelativeTime = (date: Date, time: string, maxMinutes?: number): Dayjs => {
+  const parsed = parseTimeInput(time, maxMinutes);
 
   if (!parsed.ok) {
     throw new Error(`getRelativeTime: invalid time input "${time}"`);

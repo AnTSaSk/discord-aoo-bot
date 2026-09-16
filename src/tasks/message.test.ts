@@ -259,6 +259,177 @@ describe('getMessage — resilience', () => {
   });
 });
 
+describe('getMessage — new type sections (AC-12, AC-14, AC-15, AC-16, AC-17)', () => {
+  it('renders a Dragon line with no rarity segment at all (AC-12)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Slayer' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Dragon', rarity: 'n/a', map: 'Fort Sterling' })]);
+
+    const line = renderedText(batches)
+      .split('\n')
+      .find((row) => row.startsWith('- #'));
+
+    expect(line).toBe('- #1 — **12:00** UTC (<t:4070952000:R>) —— **Fort Sterling**');
+  });
+
+  it('never lets the n/a sentinel reach the rendered output for a Dragon (AC-12)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Slayer' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Dragon', rarity: 'n/a' })]);
+
+    expect(renderedText(batches)).not.toContain('n/a');
+  });
+
+  it('does not leave a dangling separator around the empty rarity segment on a Dragon line (AC-12)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Slayer' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Dragon', rarity: 'n/a' })]);
+
+    const line = renderedText(batches)
+      .split('\n')
+      .find((row) => row.startsWith('- #'));
+
+    expect(line).not.toMatch(/——\s*——/);
+    expect(line).not.toMatch(/^- #\d+ ——/);
+    expect(line).not.toMatch(/ {2}/);
+    expect(line).not.toMatch(/— —/);
+  });
+
+  it('presents at least one active Ancient Lands Portal under its own section (AC-14)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Scout' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Small' })]);
+
+    expect(renderedText(batches)).toContain('## Ancient Lands Portal ##');
+  });
+
+  it('presents at least one active Dragon under its own section (AC-15)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Slayer' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Dragon', rarity: 'n/a' })]);
+
+    expect(renderedText(batches)).toContain('## Dragon ##');
+  });
+
+  it('shows the portal size on its objective line (AC-16)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Scout' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Large' })]);
+
+    const line = renderedText(batches)
+      .split('\n')
+      .find((row) => row.startsWith('- #'));
+
+    expect(line).toContain('Large');
+  });
+
+  it('distinguishes portal sizes on the line rather than a fixed label (AC-16)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Scout' } },
+    });
+
+    const batchesSmall = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Small' })]);
+    const batchesMedium = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Medium' })]);
+
+    expect(renderedText(batchesSmall)).toContain('Small');
+    expect(renderedText(batchesSmall)).not.toContain('Medium');
+    expect(renderedText(batchesMedium)).toContain('Medium');
+    expect(renderedText(batchesMedium)).not.toContain('Small');
+  });
+
+  it('prefixes the portal size with a green circle for Small, the name staying next to it (AC-D1)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Scout' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Small' })]);
+
+    expect(renderedText(batches)).toContain('**:green_circle: Small**');
+  });
+
+  it('prefixes the portal size with a blue circle for Medium, the name staying next to it (AC-D1)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Scout' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Medium' })]);
+
+    expect(renderedText(batches)).toContain('**:blue_circle: Medium**');
+  });
+
+  it('prefixes the portal size with an orange circle for Large, the name staying next to it (AC-D1)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Scout' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Large' })]);
+
+    expect(renderedText(batches)).toContain('**:orange_circle: Large**');
+  });
+
+  it('never displays a rarity segment on a Dragon line (AC-D2)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'Slayer' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Dragon', rarity: 'n/a', map: 'Caerleon' })]);
+
+    const line = renderedText(batches)
+      .split('\n')
+      .find((row) => row.startsWith('- #'));
+
+    expect(line).not.toMatch(/circle/);
+    expect(line).not.toContain('n/a');
+  });
+
+  it('omits both the Dragon section title and its trailing separator when no Dragon is active (AC-17)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'One' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Core', rarity: 'Common' })]);
+
+    const text = renderedText(batches);
+
+    expect(text).not.toContain('## Dragon ##');
+
+    const separatorCount = batches.flat().filter((component) => !(component instanceof TextDisplayBuilder)).length;
+
+    expect(separatorCount).toBe(1);
+  });
+
+  it('renders the three existing sections identically when the new types are also present (non-regression)', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'One' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [
+      buildObjective({ id: 1, userId: 'user-1', type: 'Core', rarity: 'Green', map: 'Lymhurst' }),
+      buildObjective({ id: 2, userId: 'user-1', type: 'Vortex', rarity: 'Blue', map: 'Martlock' }),
+      buildObjective({ id: 3, userId: 'user-1', type: 'Dragon', rarity: 'n/a', map: 'Caerleon' }),
+    ]);
+
+    const text = renderedText(batches);
+
+    expect(text).toContain('## Core ##');
+    expect(text).toContain('## Vortex ##');
+    expect(text).toContain('**:green_circle: Green**');
+    expect(text).toContain('**:blue_circle: Blue**');
+  });
+});
+
 describe('getMessage — empty batch', () => {
   it('renders the empty message without any resolution request (AC-10)', async () => {
     const { client, guildFetch, memberFetch, userFetch } = buildClient();

@@ -1,11 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Command } from '@sapphire/framework';
 
 import { EditObjectiveCommand } from '@/commands/editObjective.js';
-import { TYPE_CORE, TYPE_NODE_ORE } from '@/constants/type.js';
-import { RARITY_LEGENDARY, RARITY_4_4 } from '@/constants/rarity.js';
-import { MAP_ELDERSLEEP, MAP_FARSHORE_BAY } from '@/constants/map.js';
+import { AddObjectiveCommand } from '@/commands/addObjective.js';
+import {
+  TYPE_CORE,
+  TYPE_NODE_ORE,
+  TYPE_DRAGON,
+  TYPE_ANCIENT_LANDS_PORTAL,
+} from '@/constants/type.js';
+import {
+  RARITY_LEGENDARY,
+  RARITY_4_4,
+  RARITY_NONE,
+  RARITY_SMALL,
+  RARITY_LARGE,
+} from '@/constants/rarity.js';
+import {
+  MAP_ELDERSLEEP,
+  MAP_FARSHORE_BAY,
+  MAPS_BLACK_ZONE,
+  MAPS_ROYAL,
+} from '@/constants/map.js';
 import type { Objective } from '@/models/objective.model.js';
+import * as replyModule from '@/utils/reply.js';
 
 const {
   getActiveObjectivesMock,
@@ -15,7 +33,9 @@ const {
   deletePreviousMessageMock,
   getMessageMock,
   sendMessageBatchesMock,
+  recordLastUsedChannelMock,
 } = vi.hoisted(() => ({
+  recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
   getActiveObjectivesMock: vi.fn(),
   updateObjectiveMock: vi.fn(),
   canModifyObjectiveMock: vi.fn(),
@@ -23,6 +43,10 @@ const {
   deletePreviousMessageMock: vi.fn().mockResolvedValue(undefined),
   getMessageMock: vi.fn().mockResolvedValue([]),
   sendMessageBatchesMock: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/services/guildSettings.service.js', () => ({
+  recordLastUsedChannel: recordLastUsedChannelMock,
 }));
 
 vi.mock('@/services/objective.service.js', () => ({
@@ -498,5 +522,497 @@ describe('EditObjectiveCommand', () => {
 
       expect(choices).toHaveLength(25);
     });
+  });
+});
+
+interface StringOptionStub {
+  name: string;
+  description: string;
+  setName: (name: string) => StringOptionStub;
+  setDescription: (description: string) => StringOptionStub;
+  setRequired: (required: boolean) => StringOptionStub;
+  setAutocomplete: (autocomplete: boolean) => StringOptionStub;
+}
+
+const createStringOptionStub = (): StringOptionStub => {
+  const stub: StringOptionStub = {
+    name: '',
+    description: '',
+    setName(name) {
+      stub.name = name;
+
+      return stub;
+    },
+    setDescription(description) {
+      stub.description = description;
+
+      return stub;
+    },
+    setRequired() {
+      return stub;
+    },
+    setAutocomplete() {
+      return stub;
+    },
+  };
+
+  return stub;
+};
+
+// Mirrors addObjective.test.ts's collector so /edit's registered options can be inspected.
+const registerAndCollectEditStringOptions = (): StringOptionStub[] => {
+  const collected: StringOptionStub[] = [];
+  const builder = {
+    setName: () => builder,
+    setDescription: () => builder,
+    setIntegrationTypes: () => builder,
+    setContexts: () => builder,
+    addStringOption: (configure: (option: StringOptionStub) => StringOptionStub) => {
+      const option = createStringOptionStub();
+
+      configure(option);
+      collected.push(option);
+
+      return builder;
+    },
+  };
+  const registry = {
+    registerChatInputCommand: (configure: (b: typeof builder) => unknown) => {
+      configure(builder);
+    },
+  };
+
+  const command = Object.create(EditObjectiveCommand.prototype) as EditObjectiveCommand;
+
+  command.registerApplicationCommands(
+    registry as unknown as Parameters<EditObjectiveCommand['registerApplicationCommands']>[0],
+  );
+
+  return collected;
+};
+
+const registerAndCollectAddStringOptions = (): StringOptionStub[] => {
+  const collected: StringOptionStub[] = [];
+  const builder = {
+    setName: () => builder,
+    setDescription: () => builder,
+    setIntegrationTypes: () => builder,
+    setContexts: () => builder,
+    addStringOption: (configure: (option: StringOptionStub) => StringOptionStub) => {
+      const option = createStringOptionStub();
+
+      configure(option);
+      collected.push(option);
+
+      return builder;
+    },
+  };
+  const registry = {
+    registerChatInputCommand: (configure: (b: typeof builder) => unknown) => {
+      configure(builder);
+    },
+  };
+
+  const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
+
+  command.registerApplicationCommands(
+    registry as unknown as Parameters<AddObjectiveCommand['registerApplicationCommands']>[0],
+  );
+
+  return collected;
+};
+
+describe('EditObjectiveCommand rarity option description (AC-8b)', () => {
+  // AC-8b: description present, <= 100 chars, and IDENTICAL to /add's — not merely separately valid.
+  it('declares a rarity description present, <= 100 chars, and identical to /add', () => {
+    const editOptions = registerAndCollectEditStringOptions();
+    const addOptions = registerAndCollectAddStringOptions();
+    const editRarity = editOptions.find((option) => option.name === 'rarity');
+    const addRarity = addOptions.find((option) => option.name === 'rarity');
+
+    expect(editRarity).toBeDefined();
+    expect(editRarity?.description).toBe('Rarity/Tier/Portal size - n/a for Dragon');
+    expect(editRarity?.description.length).toBeLessThanOrEqual(100);
+    expect(editRarity?.description).toBe(addRarity?.description);
+  });
+});
+
+describe('EditObjectiveCommand mutations crossing the Dragon boundary', () => {
+  // AC-18: editing a Dragon (sentinel) toward a rarity-requiring type, no rarity supplied, is
+  // rejected as missingRarity — the sentinel counts as absence of rarity, not invalidTypeRarity.
+  it('rejects editing a Dragon toward Core with no rarity via the missingRarity error key', async () => {
+    const objective = buildObjective({ id: 20, type: TYPE_DRAGON, rarity: RARITY_NONE });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+
+    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      type: TYPE_CORE,
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'missingRarity');
+    expect(updateObjectiveMock).not.toHaveBeenCalled();
+
+    replyErrorSpy.mockRestore();
+  });
+
+  // AC-19: editing a rarity-bearing objective toward Dragon, no rarity supplied, is accepted and
+  // the sentinel is written into the updated fields (replacing the old rarity).
+  it('accepts editing Core toward Dragon with no rarity and writes the sentinel into fields', async () => {
+    const objective = buildObjective({ id: 21, type: TYPE_CORE, rarity: RARITY_LEGENDARY });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+    updateObjectiveMock.mockResolvedValue(
+      buildObjective({ id: 21, type: TYPE_DRAGON, rarity: RARITY_NONE }),
+    );
+
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      type: TYPE_DRAGON,
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(updateObjectiveMock).toHaveBeenCalledWith(
+      'guild-1',
+      21,
+      expect.objectContaining({ type: TYPE_DRAGON, rarity: RARITY_NONE }),
+    );
+  });
+
+  // AC-R9 — central trap: selecting n/a explicitly on a Dragon edit must NOT be rejected by the
+  // invalidValues referential guard before the type/rarity logic runs.
+  it('accepts editing toward Dragon with n/a explicitly selected as the rarity', async () => {
+    const objective = buildObjective({ id: 22, type: TYPE_CORE, rarity: RARITY_LEGENDARY });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+    updateObjectiveMock.mockResolvedValue(
+      buildObjective({ id: 22, type: TYPE_DRAGON, rarity: RARITY_NONE }),
+    );
+
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      type: TYPE_DRAGON,
+      rarity: RARITY_NONE,
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(updateObjectiveMock).toHaveBeenCalledWith(
+      'guild-1',
+      22,
+      expect.objectContaining({ type: TYPE_DRAGON, rarity: RARITY_NONE }),
+    );
+  });
+});
+
+describe('EditObjectiveCommand resulting map zone guard (AC-M7, AC-26)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    canModifyObjectiveMock.mockReturnValue(true);
+    isDuplicateObjectiveMock.mockReturnValue(false);
+  });
+
+  // AC-M7 / AC-26: the guard applies to the RESULTING combination, so it must fire even when the
+  // user supplies no map at all — otherwise /edit is a back door into a state /add refuses.
+  it('rejects moving a Royal-map Dragon to another type when no map is supplied', async () => {
+    const objective = buildObjective({
+      id: 30,
+      type: TYPE_DRAGON,
+      rarity: RARITY_NONE,
+      map: MAPS_ROYAL[0],
+    });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+
+    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      type: TYPE_CORE,
+      rarity: RARITY_LEGENDARY,
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'unexpectedRoyalMap');
+    expect(updateObjectiveMock).not.toHaveBeenCalled();
+
+    replyErrorSpy.mockRestore();
+  });
+
+  it('accepts moving a Royal-map Dragon to another type when a Black Zone map is supplied', async () => {
+    const objective = buildObjective({
+      id: 31,
+      type: TYPE_DRAGON,
+      rarity: RARITY_NONE,
+      map: MAPS_ROYAL[0],
+    });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+    updateObjectiveMock.mockResolvedValue(
+      buildObjective({ id: 31, type: TYPE_CORE, rarity: RARITY_LEGENDARY }),
+    );
+
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      type: TYPE_CORE,
+      rarity: RARITY_LEGENDARY,
+      map: MAPS_BLACK_ZONE[0],
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(updateObjectiveMock).toHaveBeenCalledWith(
+      'guild-1',
+      31,
+      expect.objectContaining({ type: TYPE_CORE, map: MAPS_BLACK_ZONE[0] }),
+    );
+  });
+
+  it('accepts setting a Royal map on an objective already typed as Dragon', async () => {
+    const objective = buildObjective({ id: 32, type: TYPE_DRAGON, rarity: RARITY_NONE });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+    updateObjectiveMock.mockResolvedValue(
+      buildObjective({ id: 32, type: TYPE_DRAGON, rarity: RARITY_NONE, map: MAPS_ROYAL[0] }),
+    );
+
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      map: MAPS_ROYAL[0],
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(updateObjectiveMock).toHaveBeenCalledWith(
+      'guild-1',
+      32,
+      expect.objectContaining({ map: MAPS_ROYAL[0] }),
+    );
+  });
+});
+
+describe('EditObjectiveCommand rarity autocomplete filtered by family (AC-7, AC-8)', () => {
+  const buildAutocompleteInteraction = (
+    focusedName: string,
+    typeValue: string | null,
+  ): { interaction: Command.AutocompleteInteraction; respond: ReturnType<typeof vi.fn> } => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const interaction = {
+      guildId: 'guild-1',
+      options: {
+        getFocused: () => ({ name: focusedName, value: '' }),
+        getString: (name: string) => (name === 'type' ? typeValue : null),
+      },
+      respond,
+    } as unknown as Command.AutocompleteInteraction;
+
+    return { interaction, respond };
+  };
+
+  // AC-7: after choosing a node type, rarity autocomplete proposes only that type's family.
+  it('proposes only numeric tier rarities once a node type is chosen', async () => {
+    const command = createCommand();
+    const { interaction, respond } = buildAutocompleteInteraction('rarity', TYPE_NODE_ORE);
+
+    await command.autocompleteRun(interaction);
+
+    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+    const values = choices.map((choice) => choice.value);
+
+    expect(values.length).toBeGreaterThan(0);
+    expect(values).not.toContain(RARITY_LEGENDARY);
+    expect(values).not.toContain(RARITY_SMALL);
+  });
+
+  // AC-7: after choosing Ancient Lands Portal, rarity autocomplete proposes only portal sizes.
+  it('proposes only portal sizes once Ancient Lands Portal is chosen', async () => {
+    const command = createCommand();
+    const { interaction, respond } = buildAutocompleteInteraction(
+      'rarity',
+      TYPE_ANCIENT_LANDS_PORTAL,
+    );
+
+    await command.autocompleteRun(interaction);
+
+    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+    const values = choices.map((choice) => choice.value);
+
+    expect(values).toContain(RARITY_SMALL);
+    expect(values).not.toContain(RARITY_LEGENDARY);
+    expect(values.every((value) => value !== RARITY_NONE)).toBe(true);
+  });
+
+  // AC-8, AC-R8: rarity autocomplete with type Dragon proposes n/a as the unique suggestion.
+  it('proposes n/a as the unique suggestion for rarity autocomplete when the type is Dragon', async () => {
+    const command = createCommand();
+    const { interaction, respond } = buildAutocompleteInteraction('rarity', TYPE_DRAGON);
+
+    await command.autocompleteRun(interaction);
+
+    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+
+    expect(choices.map((choice) => choice.value)).toEqual([RARITY_NONE]);
+  });
+
+  // AC-8c: sentinel must never surface for a type other than Dragon.
+  it.each([TYPE_NODE_ORE, TYPE_CORE, TYPE_ANCIENT_LANDS_PORTAL])(
+    'never includes the sentinel in rarity autocomplete for type %s',
+    async (type) => {
+      const command = createCommand();
+      const { interaction, respond } = buildAutocompleteInteraction('rarity', type);
+
+      await command.autocompleteRun(interaction);
+
+      const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+
+      expect(choices.map((choice) => choice.value)).not.toContain(RARITY_NONE);
+    },
+  );
+
+  // AC-8c: with no type chosen, the fallback stays RARITIES — no sentinel either.
+  it('never includes the sentinel in rarity autocomplete when no type is chosen', async () => {
+    const command = createCommand();
+    const { interaction, respond } = buildAutocompleteInteraction('rarity', null);
+
+    await command.autocompleteRun(interaction);
+
+    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+
+    expect(choices.map((choice) => choice.value)).not.toContain(RARITY_NONE);
+  });
+});
+
+describe('EditObjectiveCommand reverse type autocomplete narrowed by portal size (plan 2.4)', () => {
+  // Choosing a portal size must narrow the type autocomplete to the portal type only.
+  it('narrows type suggestions to Ancient Lands Portal once a portal size is chosen', async () => {
+    const command = createCommand();
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const interaction = {
+      guildId: 'guild-1',
+      options: {
+        getFocused: () => ({ name: 'type', value: '' }),
+        getString: (name: string) => (name === 'rarity' ? RARITY_SMALL : null),
+      },
+      respond,
+    } as unknown as Command.AutocompleteInteraction;
+
+    await command.autocompleteRun(interaction);
+
+    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+    const values = choices.map((choice) => choice.value);
+
+    expect(values).toEqual([TYPE_ANCIENT_LANDS_PORTAL]);
+  });
+});
+
+// objective-taxonomy AC-20: /edit without `time` still bounds the RESULTING type's cap against the
+// REMAINING time (stored date minus edit instant), never the originally-typed delay (not persisted).
+describe('EditObjectiveCommand per-type time bounds without `time` (objective-taxonomy AC-20)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    canModifyObjectiveMock.mockReturnValue(true);
+    isDuplicateObjectiveMock.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // A Large portal declared at 150 minutes remaining, edited toward Small immediately after
+  // creation: the full 150 minutes still remain, which exceeds the Small cap (30) — rejected.
+  it('rejects narrowing a Large portal (150 min remaining) to Small with timeOutOfRange, and does not modify the objective', async () => {
+    const editInstant = new Date('2026-09-01T10:00:00.000Z');
+    const storedTime = new Date('2026-09-01T12:30:00.000Z'); // 150 minutes after editInstant
+
+    vi.useFakeTimers();
+    vi.setSystemTime(editInstant);
+
+    const objective = buildObjective({
+      id: 30,
+      type: TYPE_ANCIENT_LANDS_PORTAL,
+      rarity: RARITY_LARGE,
+      time: storedTime,
+    });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+
+    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      rarity: RARITY_SMALL,
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'timeOutOfRange');
+    expect(updateObjectiveMock).not.toHaveBeenCalled();
+
+    replyErrorSpy.mockRestore();
+  });
+
+  // The same Large portal, edited 130 minutes after creation: only 20 minutes remain, which fits
+  // under the Small cap (30) — accepted, per ADR-0005's documented remaining-time behaviour.
+  it('accepts narrowing a Large portal to Small once only 20 minutes remain, leaving the stored time untouched', async () => {
+    const storedTime = new Date('2026-09-01T12:30:00.000Z');
+    const editInstant = new Date('2026-09-01T12:10:00.000Z'); // 20 minutes before storedTime
+
+    vi.useFakeTimers();
+    vi.setSystemTime(editInstant);
+
+    const objective = buildObjective({
+      id: 31,
+      type: TYPE_ANCIENT_LANDS_PORTAL,
+      rarity: RARITY_LARGE,
+      time: storedTime,
+    });
+
+    getActiveObjectivesMock.mockResolvedValue([objective]);
+    updateObjectiveMock.mockResolvedValue(
+      buildObjective({ id: 31, type: TYPE_ANCIENT_LANDS_PORTAL, rarity: RARITY_SMALL, time: storedTime }),
+    );
+
+    const command = createCommand();
+    const { interaction } = buildInteraction({
+      index: `1:${fingerprintFor(objective)}`,
+      rarity: RARITY_SMALL,
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(updateObjectiveMock).toHaveBeenCalledWith(
+      'guild-1',
+      31,
+      expect.not.objectContaining({ time: expect.anything() as unknown }),
+    );
+    expect(updateObjectiveMock).toHaveBeenCalledWith(
+      'guild-1',
+      31,
+      expect.objectContaining({ rarity: RARITY_SMALL }),
+    );
+  });
+});
+
+describe('EditObjectiveCommand last used channel (guild-settings AC-9)', () => {
+  it('records the interaction channel as the last one used by the guild', async () => {
+    recordLastUsedChannelMock.mockClear();
+    getActiveObjectivesMock.mockResolvedValue([]);
+
+    const command = createCommand();
+    const { interaction } = buildInteraction({ index: '1' });
+
+    await command.chatInputRun(interaction);
+
+    expect(recordLastUsedChannelMock).toHaveBeenCalledWith('guild-1', 'channel-1');
   });
 });

@@ -32,11 +32,11 @@ describe('GuildCreateListener', () => {
     vi.clearAllMocks();
   });
 
-  it('logs guildId, name and member count at info level (AC-2)', () => {
+  it('logs guildId, name and member count at info level (AC-2)', async () => {
     const listener = new GuildCreateListener({} as never, { event: 'guildCreate' });
     const guild = buildGuild(42);
 
-    listener.run(guild);
+    await listener.run(guild);
 
     expect(mockLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({ guildId: 'guild-123', name: 'Test Guild', memberCount: 42 }),

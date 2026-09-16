@@ -1,3 +1,215 @@
+// ROYAL
+export const MAP_ADRENS_HILL = 'Adrens Hill';
+export const MAP_ANKLESNAG_MIRE = 'Anklesnag Mire';
+export const MAP_ASPENWOOD = 'Aspenwood';
+export const MAP_ASTOLAT = 'Astolat';
+export const MAP_BELLEVIER_TOR = 'Bellever Tor';
+export const MAP_BIRCHCOPSE = 'Birchcopse';
+export const MAP_BIRKEN_FELL = 'Birken Fell';
+export const MAP_BLACKTHORN_QUARRY = 'Blackthorn Quarry';
+export const MAP_BONEPOOL_MARSH = 'Bonepool Marsh';
+export const MAP_BOWSCALE_FELL = 'Bowscale Fell';
+export const MAP_BROKEN_FELL = 'Broken Fell';
+export const MAP_BRONS_HILL = 'Brons Hill';
+export const MAP_CAIRN_CAMAIN = 'Cairn Camain';
+export const MAP_CAIRN_CLOCH = 'Cairn Cloch';
+export const MAP_CAIRN_DARG = 'Cairn Darg';
+export const MAP_CAIRN_DRAIN = 'Cairn Drain';
+export const MAP_CAIRN_FIDAIR = 'Cairn Fidair';
+export const MAP_CAIRN_GLASCORE = 'Cairn Glascore';
+export const MAP_CAIRN_GORM = 'Cairn Gorm';
+export const MAP_CAMLANN = 'Camlann';
+export const MAP_CARNS_HILL = 'Carns Hill';
+export const MAP_CAULDER_FISSURE = 'Caulder Fissure';
+export const MAP_CEDARCOPSE = 'Cedarcopse';
+export const MAP_CREAG_GARR = 'Creag Garr';
+export const MAP_CREAG_MEAGIR = 'Creag Meagir';
+export const MAP_CREAG_MORR = 'Creag Morr';
+export const MAP_CREAM_DHOR = 'Creag Dhor';
+export const MAP_CROKER_HILL = 'Croker Hill';
+export const MAP_CULEW_FEN = 'Curlew Fen';
+export const MAP_DARKGROUND_SWAMP = 'Darkground Swamp';
+export const MAP_DEADVEIN_GULLY = 'Deadvein Gully';
+export const MAP_DEPROOT_WOOD = 'Deeproot Wood';
+export const MAP_DEWLEAF_FEN = 'Dewleaf Fen';
+export const MAP_DOMHAIN_CHASM = 'Domhain Chasm';
+export const MAP_DROWNHORSE_BASIN = 'Drownhorse Basin';
+export const MAP_DRYFIELD_MEADOW = 'Dryfield Meadow';
+export const MAP_DRYWATER_MEADOW = 'Drywater Meadow';
+export const MAP_DUSKLIGHT_FEN = 'Dusklight Fen';
+export const MAP_DUSKTREE_SWAMP = 'Dusktree Swamp';
+export const MAP_ELDON_HILL = 'Eldon Hill';
+export const MAP_FALSESTEP_MARSH = 'Falsestep Marsh';
+export const MAP_FELNIKS_HILL = 'Felniks Hill';
+export const MAP_FERNDELL = 'Ferndell';
+export const MAP_FLATRIVER_TROUGH = 'Flatriver Trough';
+export const MAP_FLIMMERAIR_STEPPE = 'Flimmerair Steppe';
+export const MAP_FLYNSDELL = 'Flynsdell';
+export const MAP_FOG_FEN = 'Fog Fen';
+export const MAP_GARROW_FELL = 'Garrow Fell';
+export const MAP_GOLDSHIMMER_PLAIN = 'Goldshimmer Plain';
+export const MAP_GUTRAS_HILL = 'Gutras Hill';
+export const MAP_HALDON_TOR = 'Haldon Tor';
+export const MAP_HAYTOR = 'Haytor';
+export const MAP_HIGHBOLE_GLEN = 'Highbole Glen';
+export const MAP_HORNBEAM_WOOD = 'Hornbeam Wood';
+export const MAP_INIS_MON = 'Inis Mon';
+export const MAP_KILMAR_TOR = 'Kilmar Tor';
+export const MAP_KINDLEGRASS_STEPPE = 'Kindlegrass Steppe';
+export const MAP_LAZYGRASS_PLAIN = 'Lazygrass Plain';
+export const MAP_LEWSDON_HILL = 'Lewsdon Hill';
+export const MAP_LONGMARCH_MEADOW = 'Longmarch Meadow';
+export const MAP_LONGSHADOW_PLAIN = 'Longshadow Plain';
+export const MAP_LONGTIMBER_GLEN = 'Longtimber Glen';
+export const MAP_MALAG_CREVASSE = 'Malag Crevasse';
+export const MAP_MARDALE = 'Mardale';
+export const MAP_MURKWEALD = 'Murkweald';
+export const MAP_MURKY_FEN = 'Murky Fen';
+export const MAP_NIGHTBLOOM_FOREST = 'Nightbloom Forest';
+export const MAP_NIGHTCREAK_MARSH = 'Nightcreak Marsh';
+export const MAP_OAKCOPSE = 'Oakcopse';
+export const MAP_OWLSONG_GLEN = 'Owlsong Glen';
+export const MAP_PARCHTHROAT_PLAIN = 'Parchthroat Plain';
+export const MAP_PEN_FENAIR = 'Pern Fenair';
+export const MAP_PEN_GARN = 'Pern Garn';
+export const MAP_PEN_GENT = 'Pern Gent';
+export const MAP_PEN_KERRIG = 'Pern Kerrig';
+export const MAP_PEN_UCHAF = 'Pern Uchaf';
+export const MAP_PINECOPSE = 'Pinecopse';
+export const MAP_REDSTONE_PLAIN = 'Redstone Plain';
+export const MAP_ROASTCORPSE_STEPPE = 'Roastcorpse Steppe';
+export const MAP_ROWANWOOD = 'Rowanwood';
+export const MAP_RUNNEL_SINK = 'Runnel Sink';
+export const MAP_RUSSERDELL = 'Russerdell';
+export const MAP_SADDLE_TOR = 'Saddle Tor';
+export const MAP_SANDGUST_CLEFT = 'Sandgust Cleft';
+export const MAP_SHIFTSHADOW_EXPANSE = 'Shiftshadow Expanse';
+export const MAP_SLEETWATER_BASIN = 'Sleetwater Basin';
+export const MAP_SLITHERTAIL_MARSH = 'Slithertail Marsh';
+export const MAP_SLOWTREE_PLAIN = 'Slowtree Plain';
+export const MAP_SMOOTHFLOOR_CLEFT = 'Smoothfloor Cleft';
+export const MAP_SNAPSHAFT_TROUGH = 'Snapshaft Trough';
+export const MAP_SPECTRAL_SUMP = 'Spectral Sump';
+export const MAP_SPINDLEWOOD = 'Spindlewood';
+export const MAP_STEELHIDE_MEADOW = 'Steelhide Meadow';
+export const MAP_STUMPROT_SWAMP = 'Stumprot Swamp';
+export const MAP_THARCAL_FISSURE = 'Tharcal Fissure';
+export const MAP_VIXEN_TOR = 'Vixen Tor';
+export const MAP_WANDERLURE_BASIN = 'Wanderlure Basin';
+export const MAP_WILLOWSIGH_MARSH = 'Willowsigh Marsh';
+export const MAP_WILLOW_WOOD = 'Willow Wood';
+export const MAP_WINDRIPPLE_FEN = 'Windripple Fen';
+export const MAP_WISPWHISPER_MARSH = 'wispwhisper Marsh';
+export const MAP_WYRE_FOREST = 'Wyre Forest';
+export const MAP_YEW_WOOD = 'Yew Wood';
+
+export const MAPS_ROYAL = [
+  MAP_ADRENS_HILL,
+  MAP_ANKLESNAG_MIRE,
+  MAP_ASPENWOOD,
+  MAP_ASTOLAT,
+  MAP_BELLEVIER_TOR,
+  MAP_BIRCHCOPSE,
+  MAP_BIRKEN_FELL,
+  MAP_BLACKTHORN_QUARRY,
+  MAP_BONEPOOL_MARSH,
+  MAP_BOWSCALE_FELL,
+  MAP_BROKEN_FELL,
+  MAP_BRONS_HILL,
+  MAP_CAIRN_CAMAIN,
+  MAP_CAIRN_CLOCH,
+  MAP_CAIRN_DARG,
+  MAP_CAIRN_DRAIN,
+  MAP_CAIRN_FIDAIR,
+  MAP_CAIRN_GLASCORE,
+  MAP_CAIRN_GORM,
+  MAP_CAMLANN,
+  MAP_CARNS_HILL,
+  MAP_CAULDER_FISSURE,
+  MAP_CEDARCOPSE,
+  MAP_CREAG_GARR,
+  MAP_CREAG_MEAGIR,
+  MAP_CREAG_MORR,
+  MAP_CREAM_DHOR,
+  MAP_CROKER_HILL,
+  MAP_CULEW_FEN,
+  MAP_DARKGROUND_SWAMP,
+  MAP_DEADVEIN_GULLY,
+  MAP_DEPROOT_WOOD,
+  MAP_DEWLEAF_FEN,
+  MAP_DOMHAIN_CHASM,
+  MAP_DROWNHORSE_BASIN,
+  MAP_DRYFIELD_MEADOW,
+  MAP_DRYWATER_MEADOW,
+  MAP_DUSKLIGHT_FEN,
+  MAP_DUSKTREE_SWAMP,
+  MAP_ELDON_HILL,
+  MAP_FALSESTEP_MARSH,
+  MAP_FELNIKS_HILL,
+  MAP_FERNDELL,
+  MAP_FLATRIVER_TROUGH,
+  MAP_FLIMMERAIR_STEPPE,
+  MAP_FLYNSDELL,
+  MAP_FOG_FEN,
+  MAP_GARROW_FELL,
+  MAP_GOLDSHIMMER_PLAIN,
+  MAP_GUTRAS_HILL,
+  MAP_HALDON_TOR,
+  MAP_HAYTOR,
+  MAP_HIGHBOLE_GLEN,
+  MAP_HORNBEAM_WOOD,
+  MAP_INIS_MON,
+  MAP_KILMAR_TOR,
+  MAP_KINDLEGRASS_STEPPE,
+  MAP_LAZYGRASS_PLAIN,
+  MAP_LEWSDON_HILL,
+  MAP_LONGMARCH_MEADOW,
+  MAP_LONGSHADOW_PLAIN,
+  MAP_LONGTIMBER_GLEN,
+  MAP_MALAG_CREVASSE,
+  MAP_MARDALE,
+  MAP_MURKWEALD,
+  MAP_MURKY_FEN,
+  MAP_NIGHTBLOOM_FOREST,
+  MAP_NIGHTCREAK_MARSH,
+  MAP_OAKCOPSE,
+  MAP_OWLSONG_GLEN,
+  MAP_PARCHTHROAT_PLAIN,
+  MAP_PEN_FENAIR,
+  MAP_PEN_GARN,
+  MAP_PEN_GENT,
+  MAP_PEN_KERRIG,
+  MAP_PEN_UCHAF,
+  MAP_PINECOPSE,
+  MAP_REDSTONE_PLAIN,
+  MAP_ROASTCORPSE_STEPPE,
+  MAP_ROWANWOOD,
+  MAP_RUNNEL_SINK,
+  MAP_RUSSERDELL,
+  MAP_SADDLE_TOR,
+  MAP_SANDGUST_CLEFT,
+  MAP_SHIFTSHADOW_EXPANSE,
+  MAP_SLEETWATER_BASIN,
+  MAP_SLITHERTAIL_MARSH,
+  MAP_SLOWTREE_PLAIN,
+  MAP_SMOOTHFLOOR_CLEFT,
+  MAP_SNAPSHAFT_TROUGH,
+  MAP_SPECTRAL_SUMP,
+  MAP_SPINDLEWOOD,
+  MAP_STEELHIDE_MEADOW,
+  MAP_STUMPROT_SWAMP,
+  MAP_THARCAL_FISSURE,
+  MAP_VIXEN_TOR,
+  MAP_WANDERLURE_BASIN,
+  MAP_WILLOWSIGH_MARSH,
+  MAP_WILLOW_WOOD,
+  MAP_WINDRIPPLE_FEN,
+  MAP_WISPWHISPER_MARSH,
+  MAP_WYRE_FOREST,
+  MAP_YEW_WOOD,
+];
+
+// BLACK ZONE
 export const MAP_AVALANCHE_INCLINE = 'Avalanche Incline';
 export const MAP_AVALANCHE_RAVINE = 'Avalanche Ravine';
 export const MAP_BATTLEBRAE_FLATLAND = 'Battlebrae Flatland';
@@ -284,7 +496,7 @@ export const MAPS_WB = [
   MAP_WAILING_BULWARK,
 ];
 
-export const MAPS = [
+export const MAPS_BLACK_ZONE = [
   MAP_AVALANCHE_INCLINE,
   MAP_AVALANCHE_RAVINE,
   MAP_BATTLEBRAE_FLATLAND,
@@ -561,4 +773,10 @@ export const MAPS = [
   MAP_WINDGRASS_PRECIPICE,
   MAP_WINDGRASS_RILL,
   MAP_WINDGRASS_TERRACE,
+];
+
+// GLOBAL
+export const MAPS = [
+  ...MAPS_BLACK_ZONE,
+  ...MAPS_ROYAL,
 ];

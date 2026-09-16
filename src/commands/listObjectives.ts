@@ -13,6 +13,7 @@ import { getLogger } from '@/config/logger.js';
 import { COOLDOWN_LIST } from '@/constants/config.js';
 
 // Services
+import { recordLastUsedChannel } from '@/services/guildSettings.service.js';
 import { findObjectiveByGuildId } from '@/services/objective.service.js';
 
 // Tasks
@@ -65,6 +66,8 @@ export class ListObjectivesCommand extends Command {
 
       return;
     }
+
+    void recordLastUsedChannel(guildId, channelId);
 
     // Get data
     if (guildId && channelId) {

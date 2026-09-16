@@ -16,6 +16,7 @@ import { getLogger } from '@/config/logger.js';
 import { COOLDOWN_DEFAULT } from '@/constants/config.js';
 
 // Services
+import { recordLastUsedChannel } from '@/services/guildSettings.service.js';
 import { deleteObjective, getActiveObjectives } from '@/services/objective.service.js';
 
 // Tasks
@@ -96,6 +97,10 @@ export class RemoveObjectiveCommand extends Command {
     const guildId = interaction.guildId;
     const channelId = interaction.channelId;
     const rawIndex = interaction.options.getString('index');
+
+    if (guildId && channelId) {
+      void recordLastUsedChannel(guildId, channelId);
+    }
 
     if (!guildId || !channelId || !rawIndex) {
       logger.error(

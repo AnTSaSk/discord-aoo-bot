@@ -1,9 +1,11 @@
 import { SapphireClient } from '@sapphire/framework';
-import { GatewayIntentBits, Partials } from 'discord.js';
 
+import { getClientOptions } from '@/config/clientOptions.js';
 import { getDatabase } from '@/config/db.js';
 import { getLogger } from '@/config/logger.js';
 import { getRequiredSecret } from '@/utils/secrets.js';
+import { performShutdown } from '@/utils/shutdown.js';
+import { stopScheduledTask } from '@/tasks/cron.js';
 
 // Load dotenv only in development
 if (process.env.NODE_ENV !== 'production') {
@@ -26,15 +28,7 @@ const main = async (): Promise<void> => {
 
   if (!bot) {
     // Create a new client instance
-    client = new SapphireClient({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-      ],
-      partials: [Partials.Channel],
-      loadMessageCommandListeners: true,
-    });
+    client = new SapphireClient(getClientOptions());
 
     try {
       await db.authenticate();
@@ -53,15 +47,20 @@ const main = async (): Promise<void> => {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info(`Received ${signal}. Shutting down gracefully...`);
 
-    try {
-      await bot?.client.destroy();
-      await db.close();
-      logger.info('Shutdown complete');
-      process.exit(0);
-    } catch (error) {
-      logger.error(`Error during shutdown: ${String(error)}`);
-      process.exit(1);
-    }
+    await performShutdown(
+      {
+        logger,
+        stopCron: stopScheduledTask,
+        destroyClient: async () => {
+          await bot?.client.destroy();
+        },
+        closeDb: async () => {
+          await db.close();
+        },
+        exit: process.exit.bind(process),
+      },
+      signal,
+    );
   };
 
   process.on('SIGTERM', () => {

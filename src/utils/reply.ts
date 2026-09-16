@@ -15,16 +15,48 @@ If the problem persist, please contact the Bot Developer.`,
     'Invalid time format. Accepted formats: 1:30, 02:30, 1h30, 1h30m, 1h 30, 1h 30m, 1h, 90, 45m, 90m',
   timeOutOfRange: 'The provided time is out of the accepted range',
   invalidTypeRarity: 'This rarity is not valid for the selected type',
+  missingRarity: 'This type requires a rarity, please provide one',
+  unexpectedRarity: 'Dragon attacks have no rarity — select n/a instead',
+  unexpectedRoyalMap: 'This map is in the Royal continent, which only Dragon attacks can use',
+  guildOnly: 'This command can only be used inside a server',
 } as const;
 
-export type ErrorType = keyof typeof ERROR_MESSAGES;
+const PARAMETERIZED_ERROR_MESSAGES = {
+  channelNotWritable: ({ permission }: ErrorParams): string =>
+    `I cannot post in that channel: the **${permission}** permission is missing. Grant it there, then run the command again.`,
+} as const;
 
-export const replyError = async (
+export interface ErrorParams {
+  permission: string;
+}
+
+export type StaticErrorType = keyof typeof ERROR_MESSAGES;
+export type ParameterizedErrorType = keyof typeof PARAMETERIZED_ERROR_MESSAGES;
+export type ErrorType = StaticErrorType | ParameterizedErrorType;
+
+const isParameterized = (type: ErrorType): type is ParameterizedErrorType =>
+  type in PARAMETERIZED_ERROR_MESSAGES;
+
+export async function replyError(
+  interaction: Command.ChatInputCommandInteraction,
+  type: StaticErrorType,
+): Promise<void>;
+export async function replyError(
+  interaction: Command.ChatInputCommandInteraction,
+  type: ParameterizedErrorType,
+  params: ErrorParams,
+): Promise<void>;
+export async function replyError(
   interaction: Command.ChatInputCommandInteraction,
   type: ErrorType,
-): Promise<void> => {
+  params?: ErrorParams,
+): Promise<void> {
+  const content = params && isParameterized(type) ?
+    PARAMETERIZED_ERROR_MESSAGES[type](params) :
+    ERROR_MESSAGES[type as StaticErrorType];
+
   await interaction.reply({
-    content: ERROR_MESSAGES[type],
+    content,
     flags: MessageFlags.Ephemeral,
   });
-};
+}
