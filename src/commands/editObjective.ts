@@ -45,7 +45,6 @@ import {
   isValidTypeRarityCombination,
   MAPS_ALL_SORTED,
 } from '@/utils/objectiveValidation.js';
-import { resolveTimeBoundMinutes } from '@/utils/objectiveTimeBounds.js';
 import { canModifyObjective } from '@/utils/permissions.js';
 import { replyError } from '@/utils/reply.js';
 
@@ -96,7 +95,7 @@ export class EditObjectiveCommand extends Command {
         .addStringOption((option: SlashCommandStringOption) =>
           option
             .setName('rarity')
-            .setDescription('Rarity/Tier/Portal size - n/a for Dragon')
+            .setDescription('Rarity/Tier - n/a for Dragon')
             .setRequired(false)
             .setAutocomplete(true),
         )
@@ -383,10 +382,9 @@ export class EditObjectiveCommand extends Command {
     }
 
     let parsedTime: Date | undefined;
-    const resultingTimeBoundMinutes = resolveTimeBoundMinutes(resultingType, resultingRarity);
 
     if (newTime !== null) {
-      const parseResult = parseTimeInput(newTime, resultingTimeBoundMinutes);
+      const parseResult = parseTimeInput(newTime);
 
       if (!parseResult.ok) {
         await replyError(
@@ -397,22 +395,12 @@ export class EditObjectiveCommand extends Command {
         return;
       }
 
-      const relativeTime = getRelativeTime(new Date(), newTime, resultingTimeBoundMinutes);
+      const now = new Date();
+      const relativeTime = getRelativeTime(now, newTime);
 
       parsedTime = relativeTime.toDate();
       fields.time = parsedTime;
-      fields.maintenanceAdded = isMaintenanceAdded(relativeTime);
-    } else {
-      // AC-20: no `time` supplied, but the resulting type/rarity may narrow the cap below the
-      // remaining time already stored. Only the absolute date persists — compare against it, not
-      // against whatever delay was originally typed.
-      const remainingMinutes = dayjs(objective.time).diff(dayjs(), 'minute');
-
-      if (remainingMinutes > resultingTimeBoundMinutes) {
-        await replyError(interaction, 'timeOutOfRange');
-
-        return;
-      }
+      fields.maintenanceAdded = isMaintenanceAdded(relativeTime, now);
     }
 
     const resultingMap = fields.map ?? objective.map;

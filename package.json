@@ -1,6 +1,6 @@
 {
   "name": "discord-bot-aoo",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "author": "Alexis Besson me@alexis-besson.dev <https://alexis-besson.dev/>",
   "license": "GPL-3.0-or-later",
   "description": "Discord bot specially created for Albion Online game, it allows player to add/list/remove objectives (nodes, cores and vortexes) with all the necessary informations like the type of objective, it's rarity, the map and the time remaining before objective unlock",
@@ -19,18 +19,21 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "dev": "pnpm run build && node --env-file=.env.dev dist/src/main.js",
     "start": "node dist/src/main.js",
+    "start:announcer": "node dist/src/announcer/main.js",
     "lint": "eslint .",
     "test": "vitest run",
     "prepare": "[ -d .git ] && git config core.hooksPath .githooks || true"
   },
   "packageManager": "pnpm@10.27.0+sha512.72d699da16b1179c14ba9e64dc71c9a40988cbdc65c264cb0e489db7de917f20dcf4d64d8723625f2969ba52d4b7e2a1170682d9ac2a5dcaeaab732b7e16f04a",
   "dependencies": {
+    "@fastify/rate-limit": "11.2.1",
     "@logtail/pino": "0.5.8",
     "@sapphire/framework": "5.5.1",
     "@sequelize/core": "7.0.0-alpha.48",
     "@sequelize/postgres": "7.0.0-alpha.48",
     "dayjs": "1.11.23",
     "discord.js": "14.27.0",
+    "fastify": "5.12.7",
     "node-cron": "4.6.0",
     "pino": "10.3.1"
   },

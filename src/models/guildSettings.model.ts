@@ -21,6 +21,7 @@ export interface GuildSettings extends Model<
   announcementsEnabled: CreationOptional<boolean>;
   mentionEveryone: CreationOptional<boolean>;
   lastAnnouncedVersion: CreationOptional<string | null>;
+  removedAt: CreationOptional<Date | null>;
   createdAt: CreationOptional<Date>;
   updatedAt: CreationOptional<Date>;
 }
@@ -61,6 +62,11 @@ const defineGuildSettingsModel = (): ModelStatic<GuildSettings> =>
       lastAnnouncedVersion: {
         type: DataTypes.STRING,
         allowNull: true,
+      },
+      removedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
       },
       createdAt: {
         type: DataTypes.DATE,

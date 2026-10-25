@@ -7,12 +7,21 @@ import { Op } from '@sequelize/core';
 
 // Config
 import { getDatabase } from '@/config/db.js';
+import { getLogger } from '@/config/logger.js';
+
+// Constants
+import { GUILD_PURGE_GRACE_PERIOD_DAYS } from '@/constants/config.js';
 
 // Models
 import { getObjectiveModel } from '@/models/objective.model.js';
 
 // Services
-import { findObjectiveByGuildId } from '@/services/objective.service.js';
+import {
+  clearGuildRemoval,
+  deleteGuildSettings,
+  findGuildsRemovedBefore,
+} from '@/services/guildSettings.service.js';
+import { deleteObjectivesByGuildId, getActiveObjectives } from '@/services/objective.service.js';
 
 // Tasks
 import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
@@ -39,6 +48,45 @@ export const stopScheduledTask = async (): Promise<void> => {
 
   scheduledTask = undefined;
   await task.stop();
+};
+
+export const purgeRemovedGuilds = async (
+  now: Date,
+  isBotMember: (guildId: string) => boolean,
+): Promise<void> => {
+  const logger = getLogger();
+  const threshold = dayjs.utc(now).subtract(GUILD_PURGE_GRACE_PERIOD_DAYS, 'day').toDate();
+  let guildIds: string[];
+
+  try {
+    guildIds = await findGuildsRemovedBefore(threshold);
+  } catch (error) {
+    logger.error({ error, threshold }, 'Failed to select removed guilds to purge');
+
+    return;
+  }
+
+  for (const guildId of guildIds) {
+    try {
+      // A removal date left behind by a failed clear on re-invite must never purge a live guild
+      if (isBotMember(guildId)) {
+        await clearGuildRemoval(guildId);
+
+        logger.warn({ guildId }, 'Skipped purge of a guild the bot is a member of, removal date cleared');
+
+        continue;
+      }
+
+      // Settings go last: they carry removedAt, so a failed run is retried on the next pass
+      const deletedObjectives = await deleteObjectivesByGuildId(guildId);
+
+      await deleteGuildSettings(guildId);
+
+      logger.info({ guildId, deletedObjectives }, 'Removed guild data purged');
+    } catch (error) {
+      logger.error({ error, guildId }, 'Failed to purge removed guild data');
+    }
+  }
 };
 
 export const cronTask = async (logger: Logger, client: Client<true>): Promise<void> => {
@@ -95,7 +143,7 @@ export const cronTask = async (logger: Logger, client: Client<true>): Promise<vo
         const channel = client.channels.cache.get(data.channelId);
 
         if (channel) {
-          const guildObjectives = await findObjectiveByGuildId(data.guildId);
+          const guildObjectives = await getActiveObjectives(data.guildId);
 
           await deletePreviousMessage(client, channel.id);
 
@@ -141,4 +189,6 @@ export const cronTask = async (logger: Logger, client: Client<true>): Promise<vo
   } catch (error) {
     logger.error({ error }, 'Cron task failed');
   }
+
+  await purgeRemovedGuilds(now.toDate(), (guildId) => client.guilds.cache.has(guildId));
 };

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import dayjs from 'dayjs';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 
 import { getRelativeTime, isMaintenanceAdded, parseTimeInput } from '@/tasks/date.js';
@@ -41,56 +41,132 @@ describe('getRelativeTime', () => {
 });
 
 describe('isMaintenanceAdded', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+  // The system clock is pinned to an instant unrelated to every scenario, so an implementation
+  // reading the wall clock instead of `commandTime` cannot pass by accident.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2031-05-05T12:00:00Z'));
   });
 
-  it('returns false when objective crosses reset hour on same day', () => {
-    // Current time: 08:00 UTC (before reset), objective: 11:00 UTC (after reset)
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-01T08:00:00Z'));
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    const objectiveTime = dayjs.utc('2026-03-01T11:00:00Z');
-    const result = isMaintenanceAdded(objectiveTime);
+  const at = (iso: string): Date => new Date(iso);
+  const unlock = (iso: string): Dayjs => dayjs.utc(iso);
+
+  it('returns false when objective crosses reset hour on same day', () => {
+    // Command 08:00 UTC (before reset), objective 11:00 UTC (after reset)
+    const result = isMaintenanceAdded(unlock('2026-03-01T11:00:00Z'), at('2026-03-01T08:00:00Z'));
 
     expect(result).toBe(false);
-    vi.useRealTimers();
   });
 
   it('returns true when objective is before reset on same day', () => {
-    // Current time: 08:00 UTC, objective: 09:00 UTC (both before reset)
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-01T08:00:00Z'));
-
-    const objectiveTime = dayjs.utc('2026-03-01T09:00:00Z');
-    const result = isMaintenanceAdded(objectiveTime);
+    // Command 08:00 UTC, objective 09:00 UTC (both before reset)
+    const result = isMaintenanceAdded(unlock('2026-03-01T09:00:00Z'), at('2026-03-01T08:00:00Z'));
 
     expect(result).toBe(true);
-    vi.useRealTimers();
   });
 
   it('returns false when objective is after reset on different day', () => {
-    // Current time: 20:00 UTC, objective: next day 11:00 UTC (after reset)
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-01T20:00:00Z'));
-
-    const objectiveTime = dayjs.utc('2026-03-02T11:00:00Z');
-    const result = isMaintenanceAdded(objectiveTime);
+    // Command 20:00 UTC, objective next day 11:00 UTC (after reset)
+    const result = isMaintenanceAdded(unlock('2026-03-02T11:00:00Z'), at('2026-03-01T20:00:00Z'));
 
     expect(result).toBe(false);
-    vi.useRealTimers();
   });
 
   it('returns true when objective is before reset on different day', () => {
-    // Current time: 20:00 UTC, objective: next day 09:00 UTC (before reset)
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-01T20:00:00Z'));
-
-    const objectiveTime = dayjs.utc('2026-03-02T09:00:00Z');
-    const result = isMaintenanceAdded(objectiveTime);
+    // Command 20:00 UTC, objective next day 09:00 UTC (before reset)
+    const result = isMaintenanceAdded(unlock('2026-03-02T09:00:00Z'), at('2026-03-01T20:00:00Z'));
 
     expect(result).toBe(true);
-    vi.useRealTimers();
+  });
+
+  describe('time-input-parsing AC-11', () => {
+    it('time-input-parsing AC-11: 09:30 → 09:59 the same day does not cross the maintenance', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-16T09:59:00Z'), at('2026-10-16T09:30:00Z'));
+
+      expect(result).toBe(true);
+    });
+
+    it('time-input-parsing AC-11: 09:30 → 14:00 the same day crosses the maintenance', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-16T14:00:00Z'), at('2026-10-16T09:30:00Z'));
+
+      expect(result).toBe(false);
+    });
+
+    it('time-input-parsing AC-11: 10:30 → 14:00 the same day does not cross (next maintenance is tomorrow)', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-16T14:00:00Z'), at('2026-10-16T10:30:00Z'));
+
+      expect(result).toBe(true);
+    });
+  });
+
+  it('time-input-parsing AC-12: 09:30 → 00:00 the next UTC day crosses the same-day maintenance', () => {
+    const result = isMaintenanceAdded(unlock('2026-10-17T00:00:00Z'), at('2026-10-16T09:30:00Z'));
+
+    expect(result).toBe(false);
+  });
+
+  it('time-input-parsing AC-13: 09:00 → exactly 10:00:00 crosses the maintenance', () => {
+    const result = isMaintenanceAdded(unlock('2026-10-16T10:00:00Z'), at('2026-10-16T09:00:00Z'));
+
+    expect(result).toBe(false);
+  });
+
+  describe('time-input-parsing AC-14', () => {
+    it('time-input-parsing AC-14: command at exactly 10:00:00 → 23:00 the same day does not cross', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-16T23:00:00Z'), at('2026-10-16T10:00:00Z'));
+
+      expect(result).toBe(true);
+    });
+
+    it('time-input-parsing AC-14: command at exactly 10:00:00 → 09:59 the next day does not cross', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-17T09:59:00Z'), at('2026-10-16T10:00:00Z'));
+
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('time-input-parsing AC-15', () => {
+    it('time-input-parsing AC-15: 09:59 → 10:00 crosses the maintenance', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-16T10:00:00Z'), at('2026-10-16T09:59:00Z'));
+
+      expect(result).toBe(false);
+    });
+
+    it('time-input-parsing AC-15: 09:30 → 10:30 the same day crosses the maintenance', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-16T10:30:00Z'), at('2026-10-16T09:30:00Z'));
+
+      expect(result).toBe(false);
+    });
+
+    it('time-input-parsing AC-15: 10:30 → 09:00 the next day does not cross', () => {
+      const result = isMaintenanceAdded(unlock('2026-10-17T09:00:00Z'), at('2026-10-16T10:30:00Z'));
+
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('time-input-parsing AC-16', () => {
+    it('time-input-parsing AC-16: 09:30 + 1440 minutes crosses the maintenance', () => {
+      const command = at('2026-10-16T09:30:00Z');
+
+      expect(isMaintenanceAdded(getRelativeTime(command, '1440'), command)).toBe(false);
+    });
+
+    it('time-input-parsing AC-16: exactly 10:00:00 + 1440 minutes crosses the maintenance', () => {
+      const command = at('2026-10-16T10:00:00Z');
+
+      expect(isMaintenanceAdded(getRelativeTime(command, '1440'), command)).toBe(false);
+    });
+
+    it('time-input-parsing AC-16: 23:00 + 1440 minutes crosses the maintenance', () => {
+      const command = at('2026-10-16T23:00:00Z');
+
+      expect(isMaintenanceAdded(getRelativeTime(command, '1440'), command)).toBe(false);
+    });
   });
 });
 
@@ -343,53 +419,14 @@ describe('parseTimeInput', () => {
   });
 });
 
-// objective-taxonomy AC-9, AC-10, AC-11; time-input-parsing AC-8c — the parser accepts a
-// caller-supplied cap instead of always reading the global MAX_TOTAL_MINUTES.
-describe('parseTimeInput with a caller-supplied cap', () => {
-  // AC-9: a delay above the applicable cap is rejected as out of range, whatever the cap.
-  it('rejects 31 minutes as out of range against a 30-minute cap (Small portal)', () => {
-    const result = parseTimeInput('31', 30);
+describe('parseTimeInput single cap (objective-taxonomy AC-31)', () => {
+  it('objective-taxonomy AC-31: rejects "1441" as out of range, the parser taking no caller-supplied cap', () => {
+    const result = parseTimeInput('1441');
 
     expect(result).toEqual({ ok: false, reason: 'range' });
   });
 
-  it('rejects 61 minutes as out of range against a 60-minute cap (Medium portal)', () => {
-    const result = parseTimeInput('61', 60);
-
-    expect(result).toEqual({ ok: false, reason: 'range' });
-  });
-
-  it('rejects 181 minutes as out of range against a 180-minute cap (Large portal)', () => {
-    const result = parseTimeInput('181', 180);
-
-    expect(result).toEqual({ ok: false, reason: 'range' });
-  });
-
-  // AC-10: a value exactly at the cap is accepted (inclusive bound) and stored unchanged.
-  it('accepts exactly 30 minutes against a 30-minute cap, stored unchanged', () => {
-    const result = parseTimeInput('30', 30);
-
-    expect(result).toEqual({ ok: true, minutes: 30 });
-  });
-
-  // AC-10: a value below the cap is accepted and stored unchanged — no rounding, no completion.
-  it('accepts 10 minutes against a 30-minute cap, stored unchanged (no rounding, no completion)', () => {
-    const result = parseTimeInput('10', 30);
-
-    expect(result).toEqual({ ok: true, minutes: 10 });
-  });
-
-  // AC-11 / AC-8c: an input both malformed and out of range yields the FORMAT error, never range.
-  // "1h90" is malformed (composed-form minutes >= 60) AND its raw numeric reading (90 minutes as
-  // hours+minutes would exceed a 30-minute Small cap) would also be out of range — format must win.
-  it('reports a format error, not range, for "1h90" against a 30-minute cap (malformed AND out of range)', () => {
-    const result = parseTimeInput('1h90', 30);
-
-    expect(result).toEqual({ ok: false, reason: 'format' });
-  });
-
-  // Non-regression: omitting the cap keeps the default 1440-minute ceiling behaviour.
-  it('falls back to the default 1440-minute cap when no cap is supplied', () => {
+  it('objective-taxonomy AC-31 / AC-10: accepts "1440" unchanged, the parser taking no caller-supplied cap', () => {
     const result = parseTimeInput('1440');
 
     expect(result).toEqual({ ok: true, minutes: 1440 });

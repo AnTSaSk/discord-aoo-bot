@@ -30,15 +30,11 @@ import {
   RARITY_8_4,
   RARITY_COMMON,
   RARITY_EPIC,
-  RARITY_LARGE,
   RARITY_LEGENDARY,
-  RARITY_MEDIUM,
   RARITY_NONE,
   RARITY_RARE,
-  RARITY_SMALL,
 } from '@/constants/rarity.js';
 import {
-  TYPE_ANCIENT_LANDS_PORTAL,
   TYPE_CORE,
   TYPE_DRAGON,
   TYPE_NODE_FIBER,
@@ -51,19 +47,21 @@ import {
 // Models
 import type { Objective } from '@/models/objective.model.js';
 
-interface ObjectiveIndex {
-  id: number;
-  index: number;
+export type MessageComponent = TextDisplayBuilder | SeparatorBuilder;
+
+interface BoardItem {
+  type: string;
+  rarity: string;
+  map: string;
+  time: Date;
 }
 
-type MessageComponent = TextDisplayBuilder | SeparatorBuilder;
-
-const splitIntoBatches = (components: MessageComponent[]): MessageComponent[][] => {
+export const splitIntoBatches = <T>(components: T[]): T[][] => {
   if (components.length <= MAX_COMPONENTS_PER_MESSAGE) {
     return [components];
   }
 
-  const batches: MessageComponent[][] = [];
+  const batches: T[][] = [];
 
   for (let i = 0; i < components.length; i += MAX_COMPONENTS_PER_MESSAGE) {
     batches.push(components.slice(i, i + MAX_COMPONENTS_PER_MESSAGE));
@@ -244,19 +242,14 @@ const resolveAuthorNames = async (
   return names;
 };
 
-const displayObjective = (
-  data: Objective[],
-  authorNames: Map<string, string>,
+export const formatMaintenance = (maintenanceAdded: boolean): string =>
+  `Maintenance added: ${maintenanceAdded ? ':white_check_mark:' : ':x:'}`;
+
+export const displayBoardItems = <T extends BoardItem>(
+  data: readonly T[],
+  detailLine: (item: T) => string,
 ): MessageComponent[] => {
   const content: MessageComponent[] = [];
-  const objectiveIndex: ObjectiveIndex[] = [];
-
-  data.forEach((objective, index) => {
-    objectiveIndex.push({
-      id: objective.id,
-      index: index + 1,
-    });
-  });
 
   const objectiveNode = data.filter(
     (item) =>
@@ -267,16 +260,9 @@ const displayObjective = (
   );
   const objectiveCore = data.filter((item) => item.type === TYPE_CORE);
   const objectiveVortex = data.filter((item) => item.type === TYPE_VORTEX);
-  const objectivePortal = data.filter((item) => item.type === TYPE_ANCIENT_LANDS_PORTAL);
   const objectiveDragon = data.filter((item) => item.type === TYPE_DRAGON);
 
-  const categories = [
-    objectiveNode,
-    objectiveCore,
-    objectiveVortex,
-    objectivePortal,
-    objectiveDragon,
-  ];
+  const categories = [objectiveNode, objectiveCore, objectiveVortex, objectiveDragon];
 
   categories.forEach((category, categoryIndex) => {
     if (category.length > 0) {
@@ -293,9 +279,6 @@ const displayObjective = (
           categoryName = '## Vortex ##';
           break;
         case 3:
-          categoryName = '## Ancient Lands Portal ##';
-          break;
-        case 4:
           categoryName = '## Dragon ##';
           break;
       }
@@ -317,18 +300,15 @@ const displayObjective = (
             objectiveRarity = `**${item.rarity} ${item.type}**`;
             break;
           case RARITY_COMMON:
-          case RARITY_SMALL:
             objectiveRarity = `**:green_circle: ${item.rarity}**`;
             break;
           case RARITY_RARE:
-          case RARITY_MEDIUM:
             objectiveRarity = `**:blue_circle: ${item.rarity}**`;
             break;
           case RARITY_EPIC:
             objectiveRarity = `**:purple_circle: ${item.rarity}**`;
             break;
           case RARITY_LEGENDARY:
-          case RARITY_LARGE:
             objectiveRarity = `**:orange_circle: ${item.rarity}**`;
             break;
           case RARITY_NONE:
@@ -336,16 +316,14 @@ const displayObjective = (
             break;
         }
 
-        const itemData = objectiveIndex.find((o) => o.id === item.id);
-        const maintenance = item.maintenanceAdded ? ':white_check_mark:' : ':x:';
-        const authorName = authorNames.get(item.userId) ?? UNKNOWN_AUTHOR;
+        const position = data.indexOf(item) + 1;
 
         // No rarity segment (e.g. Dragon): drop its separator too, not just the value.
         const raritySegment = objectiveRarity.length > 0 ? ` ${objectiveRarity} ——` : '';
 
         const textDisplayList = new TextDisplayBuilder().setContent(
-          `- #${String(itemData?.index ?? 0)} —${raritySegment} **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
--# Maintenance added: ${maintenance} —— Objective added by ${authorName}`,
+          `- #${String(position)} —${raritySegment} **${dayjs(item.time).utc().format('HH:mm')}** UTC (<t:${String(dayjs(item.time).unix())}:R>) —— **${item.map}**
+${detailLine(item)}`,
         );
 
         content.push(textDisplayList);
@@ -359,6 +337,16 @@ const displayObjective = (
 
   return content;
 };
+
+const displayObjective = (
+  data: Objective[],
+  authorNames: Map<string, string>,
+): MessageComponent[] =>
+  displayBoardItems(data, (item) => {
+    const authorName = authorNames.get(item.userId) ?? UNKNOWN_AUTHOR;
+
+    return `-# ${formatMaintenance(item.maintenanceAdded)} —— Objective added by ${authorName}`;
+  });
 
 const displayNoObjective = (): MessageComponent[] => {
   const content: MessageComponent[] = [];

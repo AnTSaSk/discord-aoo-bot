@@ -6,12 +6,6 @@ import { MAX_COMPOSED_MINUTES, MAX_TOTAL_MINUTES, MIN_TOTAL_MINUTES } from '@/co
 
 dayjs.extend(utc);
 
-const getHour = (date: Date): number => {
-  const d = dayjs(date).utc();
-
-  return d.hour();
-};
-
 export type TimeParseResult =
   { ok: true; minutes: number } | { ok: false; reason: 'format' | 'range' };
 
@@ -19,18 +13,15 @@ const HOUR_SEPARATOR_FORM = /^(\d+)[:.,;](\d{1,2})$/;
 const COMPOSED_FORM = /^(\d+)h(?: ?(\d{1,2})m?)?$/;
 const MINUTES_FORM = /^(\d+)m?$/;
 
-const resolveMinutes = (totalMinutes: number, maxMinutes: number): TimeParseResult => {
-  if (totalMinutes < MIN_TOTAL_MINUTES || totalMinutes > maxMinutes) {
+const resolveMinutes = (totalMinutes: number): TimeParseResult => {
+  if (totalMinutes < MIN_TOTAL_MINUTES || totalMinutes > MAX_TOTAL_MINUTES) {
     return { ok: false, reason: 'range' };
   }
 
   return { ok: true, minutes: totalMinutes };
 };
 
-export const parseTimeInput = (
-  raw: string,
-  maxMinutes: number = MAX_TOTAL_MINUTES,
-): TimeParseResult => {
+export const parseTimeInput = (raw: string): TimeParseResult => {
   const normalized = raw.trim().toLowerCase();
 
   const separatorMatch = HOUR_SEPARATOR_FORM.exec(normalized);
@@ -39,7 +30,7 @@ export const parseTimeInput = (
     const hours = Number(separatorMatch[1]);
     const minutes = Number(separatorMatch[2]);
 
-    return resolveMinutes(hours * 60 + minutes, maxMinutes);
+    return resolveMinutes(hours * 60 + minutes);
   }
 
   const composedMatch = COMPOSED_FORM.exec(normalized);
@@ -52,20 +43,20 @@ export const parseTimeInput = (
       return { ok: false, reason: 'format' };
     }
 
-    return resolveMinutes(hours * 60 + minutes, maxMinutes);
+    return resolveMinutes(hours * 60 + minutes);
   }
 
   const minutesMatch = MINUTES_FORM.exec(normalized);
 
   if (minutesMatch) {
-    return resolveMinutes(Number(minutesMatch[1]), maxMinutes);
+    return resolveMinutes(Number(minutesMatch[1]));
   }
 
   return { ok: false, reason: 'format' };
 };
 
-export const getRelativeTime = (date: Date, time: string, maxMinutes?: number): Dayjs => {
-  const parsed = parseTimeInput(time, maxMinutes);
+export const getRelativeTime = (date: Date, time: string): Dayjs => {
+  const parsed = parseTimeInput(time);
 
   if (!parsed.ok) {
     throw new Error(`getRelativeTime: invalid time input "${time}"`);
@@ -76,22 +67,12 @@ export const getRelativeTime = (date: Date, time: string, maxMinutes?: number): 
   return d.add(parsed.minutes, 'm');
 };
 
-export const isMaintenanceAdded = (objectiveTime: Dayjs): boolean => {
-  const currentDate = dayjs().utc();
+export const isMaintenanceAdded = (objectiveTime: Dayjs, commandTime: Date): boolean => {
+  const command = dayjs(commandTime).utc();
+  const sameDayMaintenance = command.startOf('day').add(RESET_HOUR, 'hour');
+  const nextMaintenance = command.isBefore(sameDayMaintenance) ?
+    sameDayMaintenance :
+    sameDayMaintenance.add(1, 'day');
 
-  // Same date
-  if (currentDate.isSame(objectiveTime, 'day')) {
-    if (
-      getHour(currentDate.toDate()) < RESET_HOUR &&
-      getHour(objectiveTime.toDate()) > RESET_HOUR
-    ) {
-      return false;
-    }
-  } else {
-    if (getHour(objectiveTime.toDate()) > RESET_HOUR) {
-      return false;
-    }
-  }
-
-  return true;
+  return objectiveTime.isBefore(nextMaintenance);
 };

@@ -14,7 +14,7 @@ import { COOLDOWN_LIST } from '@/constants/config.js';
 
 // Services
 import { recordLastUsedChannel } from '@/services/guildSettings.service.js';
-import { findObjectiveByGuildId } from '@/services/objective.service.js';
+import { getActiveObjectives } from '@/services/objective.service.js';
 
 // Tasks
 import { deletePreviousMessage, getMessage, sendMessageBatches } from '@/tasks/message.js';
@@ -74,10 +74,7 @@ export class ListObjectivesCommand extends Command {
       const channel = await this.container.client.channels.fetch(channelId);
 
       // Get current objectives for this guild
-      const objectives = await findObjectiveByGuildId(guildId);
-      const currentObjectives = objectives.filter(
-        (objective) => objective.time.getTime() > Date.now(),
-      );
+      const currentObjectives = await getActiveObjectives(guildId);
 
       if (channel) {
         await deletePreviousMessage(this.container.client, channel.id);

@@ -14,7 +14,6 @@ import {
   TYPE_NODE_WOOD,
   TYPE_CORE,
   TYPE_VORTEX,
-  TYPE_ANCIENT_LANDS_PORTAL,
   TYPE_DRAGON,
 } from '@/constants/type.js';
 import {
@@ -27,9 +26,6 @@ import {
   RARITY_RARE,
   RARITY_EPIC,
   RARITY_LEGENDARY,
-  RARITY_SMALL,
-  RARITY_MEDIUM,
-  RARITY_LARGE,
   RARITY_NONE,
 } from '@/constants/rarity.js';
 
@@ -65,13 +61,9 @@ describe('isValidTypeRarityCombination', () => {
     expect(isValidTypeRarityCombination(TYPE_VORTEX, RARITY_4_4)).toBe(false);
   });
 
-  // AC-1: node type accepts only numeric tier rarities, rejects named rarity and portal size
+  // AC-1: node type accepts only numeric tier rarities, rejects named rarity
   it.each(NODE_TYPES)('refuses node type %s combined with a named rarity (AC-1)', (type) => {
     expect(isValidTypeRarityCombination(type, RARITY_EPIC)).toBe(false);
-  });
-
-  it.each(NODE_TYPES)('refuses node type %s combined with a portal size (AC-1)', (type) => {
-    expect(isValidTypeRarityCombination(type, RARITY_SMALL)).toBe(false);
   });
 
   it.each(NODE_TYPES.flatMap((type) => NUMERIC_TIER_RARITIES.map((rarity) => [type, rarity])))(
@@ -81,13 +73,9 @@ describe('isValidTypeRarityCombination', () => {
     },
   );
 
-  // AC-2: Core/Vortex accepts only named rarities, rejects numeric tier and portal size
+  // AC-2: Core/Vortex accepts only named rarities, rejects numeric tier
   it.each(NAMED_RARITY_TYPES)('refuses %s combined with a numeric tier rarity (AC-2)', (type) => {
     expect(isValidTypeRarityCombination(type, RARITY_4_4)).toBe(false);
-  });
-
-  it.each(NAMED_RARITY_TYPES)('refuses %s combined with a portal size (AC-2)', (type) => {
-    expect(isValidTypeRarityCombination(type, RARITY_MEDIUM)).toBe(false);
   });
 
   it.each(NAMED_RARITY_TYPES.flatMap((type) => NAMED_RARITIES.map((rarity) => [type, rarity])))(
@@ -97,34 +85,16 @@ describe('isValidTypeRarityCombination', () => {
     },
   );
 
-  // AC-3: Ancient Lands Portal accepts only portal sizes, rejects numeric tier and named rarity
-  it.each([RARITY_SMALL, RARITY_MEDIUM, RARITY_LARGE])(
-    'accepts Ancient Lands Portal with portal size %s (AC-3)',
-    (rarity) => {
-      expect(isValidTypeRarityCombination(TYPE_ANCIENT_LANDS_PORTAL, rarity)).toBe(true);
-    },
-  );
-
-  it('refuses Ancient Lands Portal combined with a numeric tier rarity (AC-3)', () => {
-    expect(isValidTypeRarityCombination(TYPE_ANCIENT_LANDS_PORTAL, RARITY_4_4)).toBe(false);
-  });
-
-  it('refuses Ancient Lands Portal combined with a named rarity (AC-3)', () => {
-    expect(isValidTypeRarityCombination(TYPE_ANCIENT_LANDS_PORTAL, RARITY_EPIC)).toBe(false);
-  });
-
   // Plan 2.1: an unknown type must inherit no family — no permissive fallback.
   it('refuses an unknown type regardless of rarity, including the sentinel', () => {
     expect(isValidTypeRarityCombination('Unknown type', RARITY_4_4)).toBe(false);
     expect(isValidTypeRarityCombination('Unknown type', RARITY_EPIC)).toBe(false);
-    expect(isValidTypeRarityCombination('Unknown type', RARITY_SMALL)).toBe(false);
     expect(isValidTypeRarityCombination('Unknown type', RARITY_NONE)).toBe(false);
   });
 
   it('refuses Dragon combined with any real rarity (AC-5 precondition)', () => {
     expect(isValidTypeRarityCombination(TYPE_DRAGON, RARITY_4_4)).toBe(false);
     expect(isValidTypeRarityCombination(TYPE_DRAGON, RARITY_EPIC)).toBe(false);
-    expect(isValidTypeRarityCombination(TYPE_DRAGON, RARITY_SMALL)).toBe(false);
   });
 
   it('accepts Dragon only with the sentinel rarity', () => {
@@ -141,7 +111,6 @@ describe('type/map zone combination (ADR-0011, AC-21..AC-27)', () => {
     TYPE_NODE_WOOD,
     TYPE_CORE,
     TYPE_VORTEX,
-    TYPE_ANCIENT_LANDS_PORTAL,
   ])('rejects a Royal map for %s', (type) => {
     expect(isValidTypeMapCombination(type, MAPS_ROYAL[0])).toBe(false);
   });

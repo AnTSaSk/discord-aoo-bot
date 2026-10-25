@@ -13,7 +13,7 @@ import { getLogger } from '@/config/logger.js';
 import { PRIVACY_URL, TERMS_URL, WEBSITE_URL } from '@/constants/config.js';
 
 // Services
-import { updateGuildSettings } from '@/services/guildSettings.service.js';
+import { clearGuildRemoval, updateGuildSettings } from '@/services/guildSettings.service.js';
 
 // Tasks
 import { getAnnounceableVersion } from '@/tasks/announcement.js';
@@ -60,6 +60,12 @@ export class GuildCreateListener extends Listener {
       { guildId: guild.id, name: guild.name, memberCount: guild.memberCount },
       'Bot joined a guild',
     );
+
+    try {
+      await clearGuildRemoval(guild.id);
+    } catch (error) {
+      logger.error({ error, guildId: guild.id }, 'Failed to clear the guild removal date');
+    }
 
     // A guild joining today must not receive announcements for versions published before it arrived
     const announcement = getAnnounceableVersion();

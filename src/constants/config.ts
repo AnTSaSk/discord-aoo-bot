@@ -14,11 +14,6 @@ export const DUPLICATE_TIME_WINDOW_MINUTES = 4;
 export const MIN_TOTAL_MINUTES = 1;
 export const MAX_TOTAL_MINUTES = 1440;
 
-// Portal size time caps (Ancient Lands Portal), stricter than the default MAX_TOTAL_MINUTES
-export const MAX_PORTAL_SMALL_MINUTES = 30;
-export const MAX_PORTAL_MEDIUM_MINUTES = 60;
-export const MAX_PORTAL_LARGE_MINUTES = 180;
-
 // Minutes part of a composed form such as `1h30`
 export const MAX_COMPOSED_MINUTES = 59;
 
@@ -30,6 +25,14 @@ export const COOLDOWN_LIST = 5_000;
 // shared with the objective cron
 export const ANNOUNCEMENT_BATCH_SIZE = 5;
 export const ANNOUNCEMENT_BATCH_DELAY_MS = 1_000;
+
+export const GUILD_PURGE_GRACE_PERIOD_DAYS = 7;
+
+export const AGGREGATED_BOARD_MERGE_TOLERANCE_MS = 5 * 60 * 1_000;
+
+// Discord limits of a single Components V2 message: total text displayed, top-level components
+export const DISCORD_MESSAGE_MAX_TEXT_LENGTH = 4000;
+export const DISCORD_MESSAGE_MAX_COMPONENTS = 40;
 
 // Client cache sweep interval (client-runtime.md § Options client, AC-4, AC-5)
 export const SWEEP_INTERVAL_SECONDS = 3600;

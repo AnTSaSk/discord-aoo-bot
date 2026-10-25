@@ -5,7 +5,6 @@ import {
   TYPE_NODE_WOOD,
   TYPE_CORE,
   TYPE_VORTEX,
-  TYPE_ANCIENT_LANDS_PORTAL,
   TYPE_DRAGON,
 } from '@/constants/type.js';
 import {
@@ -18,9 +17,6 @@ import {
   RARITY_RARE,
   RARITY_EPIC,
   RARITY_LEGENDARY,
-  RARITY_SMALL,
-  RARITY_MEDIUM,
-  RARITY_LARGE,
   RARITY_NONE,
 } from '@/constants/rarity.js';
 import { MAPS, MAPS_BLACK_ZONE, MAPS_ROYAL } from '@/constants/map.js';
@@ -33,7 +29,6 @@ const NUMERIC_TIER_RARITIES = new Set<string>([
   RARITY_8_4,
 ]);
 const NAMED_RARITIES = new Set<string>([RARITY_COMMON, RARITY_RARE, RARITY_EPIC, RARITY_LEGENDARY]);
-const PORTAL_SIZES = new Set<string>([RARITY_SMALL, RARITY_MEDIUM, RARITY_LARGE]);
 const SENTINEL_ONLY = new Set<string>([RARITY_NONE]);
 
 // Type -> its admissible rarity family. Single source consumed by validation and autocomplete.
@@ -44,7 +39,6 @@ const TYPE_RARITY_FAMILY = new Map<string, Set<string>>([
   [TYPE_NODE_WOOD, NUMERIC_TIER_RARITIES],
   [TYPE_CORE, NAMED_RARITIES],
   [TYPE_VORTEX, NAMED_RARITIES],
-  [TYPE_ANCIENT_LANDS_PORTAL, PORTAL_SIZES],
   [TYPE_DRAGON, SENTINEL_ONLY],
 ]);
 
@@ -65,7 +59,6 @@ const TYPE_MAP_ZONE = new Map<string, Set<string>>([
   [TYPE_NODE_WOOD, BLACK_ZONE_ONLY],
   [TYPE_CORE, BLACK_ZONE_ONLY],
   [TYPE_VORTEX, BLACK_ZONE_ONLY],
-  [TYPE_ANCIENT_LANDS_PORTAL, BLACK_ZONE_ONLY],
   [TYPE_DRAGON, BOTH_ZONES],
 ]);
 

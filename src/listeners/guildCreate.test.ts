@@ -4,14 +4,21 @@ import type { Guild } from 'discord.js';
 import { GuildCreateListener } from '@/listeners/guildCreate.js';
 import { getAnnounceableVersion } from '@/tasks/announcement.js';
 
-const { updateGuildSettingsMock, resolveWelcomeChannelMock, loggerInfoMock } = vi.hoisted(() => ({
+const {
+  updateGuildSettingsMock,
+  clearGuildRemovalMock,
+  resolveWelcomeChannelMock,
+  loggerInfoMock,
+} = vi.hoisted(() => ({
   updateGuildSettingsMock: vi.fn().mockResolvedValue(undefined),
+  clearGuildRemovalMock: vi.fn().mockResolvedValue(undefined),
   resolveWelcomeChannelMock: vi.fn(),
   loggerInfoMock: vi.fn(),
 }));
 
 vi.mock('@/services/guildSettings.service.js', () => ({
   updateGuildSettings: updateGuildSettingsMock,
+  clearGuildRemoval: clearGuildRemovalMock,
 }));
 
 vi.mock('@/utils/permissions.js', () => ({
@@ -137,5 +144,59 @@ describe('GuildCreateListener version marking (AC-26)', () => {
     expect(updateGuildSettingsMock).toHaveBeenCalledWith('guild-1', {
       lastAnnouncedVersion: getAnnounceableVersion()?.version,
     });
+  });
+});
+
+describe('GuildCreateListener removal cancellation (AC-PURGE-4, AC-2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('AC-PURGE-4 / AC-2: clears the pending removal date of the joined guild', async () => {
+    const { channel } = buildChannel();
+
+    resolveWelcomeChannelMock.mockReturnValue(channel);
+
+    await createListener().run(buildGuild());
+
+    expect(clearGuildRemovalMock).toHaveBeenCalledTimes(1);
+    expect(clearGuildRemovalMock).toHaveBeenCalledWith('guild-1');
+  });
+
+  it('AC-PURGE-4: clears the removal date before sending the welcome message', async () => {
+    const { channel, send } = buildChannel();
+
+    resolveWelcomeChannelMock.mockReturnValue(channel);
+
+    await createListener().run(buildGuild());
+
+    const clearOrder = clearGuildRemovalMock.mock.invocationCallOrder[0];
+    const sendOrder = send.mock.invocationCallOrder[0];
+
+    expect(clearOrder).toBeLessThan(sendOrder);
+  });
+
+  it('AC-2: logs the join before clearing the removal date', async () => {
+    resolveWelcomeChannelMock.mockReturnValue(null);
+
+    await createListener().run(buildGuild());
+
+    const logOrder = loggerInfoMock.mock.invocationCallOrder[0];
+    const clearOrder = clearGuildRemovalMock.mock.invocationCallOrder[0];
+
+    expect(logOrder).toBeLessThan(clearOrder);
+  });
+
+  it('AC-PURGE-4 / AC-2: contains a clearing failure and still logs the join', async () => {
+    resolveWelcomeChannelMock.mockReturnValue(null);
+    clearGuildRemovalMock.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(createListener().run(buildGuild())).resolves.toBeUndefined();
+
+    expect(clearGuildRemovalMock).toHaveBeenCalledWith('guild-1');
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ guildId: 'guild-1', name: 'Test Guild', memberCount: 42 }),
+      expect.any(String),
+    );
   });
 });

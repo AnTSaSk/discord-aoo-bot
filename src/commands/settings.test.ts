@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS = {
   announcementsEnabled: true,
   mentionEveryone: false,
   lastAnnouncedVersion: null,
+  removedAt: null,
 };
 
 interface FakeReplyPayload {

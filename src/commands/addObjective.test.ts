@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { type MessageFlags } from 'discord.js';
 import type { Command } from '@sapphire/framework';
 import { Op } from '@sequelize/core';
@@ -6,27 +6,32 @@ import { Op } from '@sequelize/core';
 import { AddObjectiveCommand } from '@/commands/addObjective.js';
 import {
   TYPE_CORE,
+  TYPE_NODE_FIBER,
+  TYPE_NODE_HIDE,
   TYPE_NODE_ORE,
+  TYPE_NODE_WOOD,
+  TYPE_VORTEX,
   TYPE_DRAGON,
-  TYPE_ANCIENT_LANDS_PORTAL,
 } from '@/constants/type.js';
-import {
-  RARITY_LEGENDARY,
-  RARITY_NONE,
-  RARITY_SMALL,
-  RARITY_MEDIUM,
-  RARITY_LARGE,
-} from '@/constants/rarity.js';
+import { RARITY_4_4, RARITY_LEGENDARY, RARITY_NONE } from '@/constants/rarity.js';
 import { MAP_ELDERSLEEP, MAPS_BLACK_ZONE, MAPS_ROYAL } from '@/constants/map.js';
 import { MAPS_ALL_SORTED } from '@/utils/objectiveValidation.js';
+import type { Objective } from '@/models/objective.model.js';
+import * as replyModule from '@/utils/reply.js';
 
-const { recordLastUsedChannelMock, createObjectiveMock, findAllObjectiveMock } = vi.hoisted(
-  () => ({
-    recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
-    createObjectiveMock: vi.fn(),
-    findAllObjectiveMock: vi.fn().mockResolvedValue([]),
-  }),
-);
+const {
+  recordLastUsedChannelMock,
+  createObjectiveMock,
+  findAllObjectiveMock,
+  getActiveObjectivesMock,
+  getMessageMock,
+} = vi.hoisted(() => ({
+  recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
+  createObjectiveMock: vi.fn(),
+  findAllObjectiveMock: vi.fn().mockResolvedValue([]),
+  getActiveObjectivesMock: vi.fn().mockResolvedValue([]),
+  getMessageMock: vi.fn().mockResolvedValue([]),
+}));
 
 vi.mock('@/services/guildSettings.service.js', () => ({
   recordLastUsedChannel: recordLastUsedChannelMock,
@@ -35,12 +40,12 @@ vi.mock('@/services/guildSettings.service.js', () => ({
 vi.mock('@/services/objective.service.js', () => ({
   createObjective: createObjectiveMock,
   findAllObjective: findAllObjectiveMock,
-  findObjectiveByGuildId: vi.fn().mockResolvedValue([]),
+  getActiveObjectives: getActiveObjectivesMock,
 }));
 
 vi.mock('@/tasks/message.js', () => ({
   deletePreviousMessage: vi.fn(),
-  getMessage: vi.fn().mockResolvedValue([]),
+  getMessage: getMessageMock,
   sendMessageBatches: vi.fn(),
 }));
 
@@ -229,12 +234,12 @@ describe('AddObjectiveCommand rarity option is required (AC-R1, AC-R2, AC-R3, AC
     expect(options.every((option) => option.required)).toBe(true);
   });
 
-  it('declares the rarity option with the exact target description, <= 100 chars', () => {
+  it('objective-taxonomy AC-8b: declares the rarity option with the exact target description, <= 100 chars', () => {
     const options = registerAndCollectStringOptions();
     const rarityOption = options.find((option) => option.name === 'rarity');
 
     expect(rarityOption).toBeDefined();
-    expect(rarityOption?.description).toBe('Rarity/Tier/Portal size - n/a for Dragon');
+    expect(rarityOption?.description).toBe('Rarity/Tier - n/a for Dragon');
     expect(rarityOption?.description.length).toBeLessThanOrEqual(100);
   });
 });
@@ -408,25 +413,7 @@ describe('AddObjectiveCommand rarity autocomplete filtered by family (AC-7, AC-8
 
     expect(values.length).toBeGreaterThan(0);
     expect(values).not.toContain(RARITY_LEGENDARY);
-    expect(values).not.toContain(RARITY_SMALL);
-  });
-
-  // AC-7: after choosing Ancient Lands Portal, rarity autocomplete proposes only portal sizes.
-  it('proposes only portal sizes once Ancient Lands Portal is chosen', async () => {
-    const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
-    const { interaction, respond } = buildAutocompleteInteraction(
-      'rarity',
-      TYPE_ANCIENT_LANDS_PORTAL,
-    );
-
-    await command.autocompleteRun(interaction);
-
-    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
-    const values = choices.map((choice) => choice.value);
-
-    expect(values).toContain(RARITY_SMALL);
-    expect(values).not.toContain(RARITY_LEGENDARY);
-    expect(values.every((value) => value !== RARITY_NONE)).toBe(true);
+    expect(values).not.toContain('Small');
   });
 
   // AC-8, AC-R5: rarity autocomplete with type Dragon proposes n/a as the unique suggestion.
@@ -442,7 +429,7 @@ describe('AddObjectiveCommand rarity autocomplete filtered by family (AC-7, AC-8
   });
 
   // AC-8c: sentinel must never surface for a type other than Dragon.
-  it.each([TYPE_NODE_ORE, TYPE_CORE, TYPE_ANCIENT_LANDS_PORTAL])(
+  it.each([TYPE_NODE_ORE, TYPE_CORE])(
     'never includes the sentinel in rarity autocomplete for type %s',
     async (type) => {
       const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
@@ -466,178 +453,6 @@ describe('AddObjectiveCommand rarity autocomplete filtered by family (AC-7, AC-8
     const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
 
     expect(choices.map((choice) => choice.value)).not.toContain(RARITY_NONE);
-  });
-});
-
-describe('AddObjectiveCommand per-type time bounds (objective-taxonomy AC-9, AC-11)', () => {
-  const buildInteractionWithContainer = (values: {
-    type: string | null;
-    rarity: string | null;
-    map: string | null;
-    time: string | null;
-  }): {
-    interaction: Command.ChatInputCommandInteraction;
-    reply: ReturnType<typeof vi.fn<(payload: FakeReplyPayload) => Promise<void>>>;
-    command: AddObjectiveCommand;
-  } => {
-    const { interaction, reply } = buildChatInputInteraction(values);
-    const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
-
-    Object.defineProperty(command, 'container', {
-      value: {
-        client: {
-          channels: { fetch: vi.fn().mockResolvedValue({ id: 'channel-1' }) },
-        },
-      },
-    });
-
-    return { interaction, reply, command };
-  };
-
-  beforeEach(() => {
-    createObjectiveMock.mockReset();
-    findAllObjectiveMock.mockReset();
-    findAllObjectiveMock.mockResolvedValue([]);
-  });
-
-  // AC-9: a Small portal declared with 31 minutes exceeds its 30-minute cap.
-  it('rejects a Small portal declared at 31 minutes with timeOutOfRange', async () => {
-    const replyModule = await import('@/utils/reply.js');
-    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
-
-    const { interaction, command } = buildInteractionWithContainer({
-      type: TYPE_ANCIENT_LANDS_PORTAL,
-      rarity: RARITY_SMALL,
-      map: MAP_ELDERSLEEP,
-      time: '31',
-    });
-
-    await command.chatInputRun(interaction);
-
-    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'timeOutOfRange');
-    expect(createObjectiveMock).not.toHaveBeenCalled();
-
-    replyErrorSpy.mockRestore();
-  });
-
-  // AC-9: a Medium portal declared with 61 minutes exceeds its 60-minute cap.
-  it('rejects a Medium portal declared at 61 minutes with timeOutOfRange', async () => {
-    const replyModule = await import('@/utils/reply.js');
-    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
-
-    const { interaction, command } = buildInteractionWithContainer({
-      type: TYPE_ANCIENT_LANDS_PORTAL,
-      rarity: RARITY_MEDIUM,
-      map: MAP_ELDERSLEEP,
-      time: '61',
-    });
-
-    await command.chatInputRun(interaction);
-
-    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'timeOutOfRange');
-    expect(createObjectiveMock).not.toHaveBeenCalled();
-
-    replyErrorSpy.mockRestore();
-  });
-
-  // AC-9: a Large portal declared with 181 minutes exceeds its 180-minute cap.
-  it('rejects a Large portal declared at 181 minutes with timeOutOfRange', async () => {
-    const replyModule = await import('@/utils/reply.js');
-    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
-
-    const { interaction, command } = buildInteractionWithContainer({
-      type: TYPE_ANCIENT_LANDS_PORTAL,
-      rarity: RARITY_LARGE,
-      map: MAP_ELDERSLEEP,
-      time: '181',
-    });
-
-    await command.chatInputRun(interaction);
-
-    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'timeOutOfRange');
-    expect(createObjectiveMock).not.toHaveBeenCalled();
-
-    replyErrorSpy.mockRestore();
-  });
-
-  // AC-10: a value exactly at the portal's cap is accepted and stored unchanged (no rounding).
-  it('accepts a Small portal declared at exactly 30 minutes and stores it unchanged', async () => {
-    createObjectiveMock.mockResolvedValue({ id: 1 });
-
-    const { interaction, command } = buildInteractionWithContainer({
-      type: TYPE_ANCIENT_LANDS_PORTAL,
-      rarity: RARITY_SMALL,
-      map: MAP_ELDERSLEEP,
-      time: '30',
-    });
-
-    await command.chatInputRun(interaction);
-
-    expect(createObjectiveMock).toHaveBeenCalled();
-    const [payload] = createObjectiveMock.mock.calls[0] as [{ time: Date }];
-    const minutesStored = Math.round((payload.time.getTime() - Date.now()) / 60000);
-
-    expect(minutesStored).toBe(30);
-  });
-
-  // AC-11: "1h90" on a Small portal is both malformed (composed-form minutes >= 60) and, read as
-  // a raw quantity, out of range for a 30-minute cap — the format error must win.
-  it('reports invalidTimeFormat, never timeOutOfRange, for "1h90" on a Small portal', async () => {
-    const replyModule = await import('@/utils/reply.js');
-    const replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
-
-    const { interaction, command } = buildInteractionWithContainer({
-      type: TYPE_ANCIENT_LANDS_PORTAL,
-      rarity: RARITY_SMALL,
-      map: MAP_ELDERSLEEP,
-      time: '1h90',
-    });
-
-    await command.chatInputRun(interaction);
-
-    expect(replyErrorSpy).toHaveBeenCalledWith(interaction, 'invalidTimeFormat');
-    expect(replyErrorSpy).not.toHaveBeenCalledWith(interaction, 'timeOutOfRange');
-    expect(createObjectiveMock).not.toHaveBeenCalled();
-
-    replyErrorSpy.mockRestore();
-  });
-
-  // Non-regression: a non-portal type keeps the 1440-minute cap.
-  it('accepts a Core objective declared at 1000 minutes (well under the default 1440 cap)', async () => {
-    createObjectiveMock.mockResolvedValue({ id: 1 });
-
-    const { interaction, command } = buildInteractionWithContainer({
-      type: TYPE_CORE,
-      rarity: RARITY_LEGENDARY,
-      map: MAP_ELDERSLEEP,
-      time: '1000',
-    });
-
-    await command.chatInputRun(interaction);
-
-    expect(createObjectiveMock).toHaveBeenCalled();
-  });
-});
-
-describe('AddObjectiveCommand reverse type autocomplete narrowed by portal size (plan 2.4)', () => {
-  // Choosing a portal size must narrow the type autocomplete to the portal type only.
-  it('narrows type suggestions to Ancient Lands Portal once a portal size is chosen', async () => {
-    const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
-    const respond = vi.fn().mockResolvedValue(undefined);
-    const interaction = {
-      options: {
-        getFocused: () => ({ name: 'type', value: '' }),
-        getString: (name: string) => (name === 'rarity' ? RARITY_SMALL : null),
-      },
-      respond,
-    } as unknown as Command.AutocompleteInteraction;
-
-    await command.autocompleteRun(interaction);
-
-    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
-    const values = choices.map((choice) => choice.value);
-
-    expect(values).toEqual([TYPE_ANCIENT_LANDS_PORTAL]);
   });
 });
 
@@ -813,5 +628,286 @@ describe('AddObjectiveCommand map autocomplete by zone (AC-M1..AC-M4, AC-21..AC-
 
     expect(respondedNames(respond)).toContain(TYPE_NODE_ORE);
     expect(respondedNames(respond)).toContain(TYPE_DRAGON);
+  });
+});
+
+describe('AddObjectiveCommand maintenance flag (time-input-parsing AC-11, AC-12)', () => {
+  beforeEach(() => {
+    createObjectiveMock.mockReset();
+    createObjectiveMock.mockResolvedValue({ id: 1 });
+    findAllObjectiveMock.mockReset();
+    findAllObjectiveMock.mockResolvedValue([]);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T09:30:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('time-input-parsing AC-12: persists maintenanceAdded false for a 09:30 UTC command with a 14:30 delay (availability 00:00 UTC next day)', async () => {
+    const { interaction } = buildChatInputInteraction({
+      type: TYPE_CORE,
+      rarity: RARITY_LEGENDARY,
+      map: MAP_ELDERSLEEP,
+      time: '14:30',
+    });
+    const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
+
+    Object.defineProperty(command, 'container', {
+      value: {
+        client: {
+          channels: { fetch: vi.fn().mockResolvedValue({ id: 'channel-1' }) },
+        },
+      },
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(createObjectiveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        time: new Date('2026-10-17T00:00:00Z'),
+        maintenanceAdded: false,
+      }),
+    );
+  });
+});
+
+const TRACKED_TYPES_WITH_RARITY: [string, string][] = [
+  [TYPE_NODE_FIBER, RARITY_4_4],
+  [TYPE_NODE_HIDE, RARITY_4_4],
+  [TYPE_NODE_ORE, RARITY_4_4],
+  [TYPE_NODE_WOOD, RARITY_4_4],
+  [TYPE_CORE, RARITY_LEGENDARY],
+  [TYPE_VORTEX, RARITY_LEGENDARY],
+  [TYPE_DRAGON, RARITY_NONE],
+];
+const RETIRED_TYPE = 'Ancient Lands Portal';
+const RETIRED_SIZES = ['Small', 'Medium', 'Large'];
+
+const createCommandWithClient = (): { command: AddObjectiveCommand; client: object } => {
+  const client = { channels: { fetch: vi.fn().mockResolvedValue({ id: 'channel-1' }) } };
+  const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
+
+  Object.defineProperty(command, 'container', { value: { client } });
+
+  return { command, client };
+};
+
+describe('AddObjectiveCommand retired portal values (objective-taxonomy AC-28, AC-29)', () => {
+  let replyErrorSpy: MockInstance<typeof replyModule.replyError>;
+
+  beforeEach(() => {
+    createObjectiveMock.mockReset();
+    findAllObjectiveMock.mockReset();
+    findAllObjectiveMock.mockResolvedValue([]);
+    replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    replyErrorSpy.mockRestore();
+  });
+
+  it('objective-taxonomy AC-28: rejects the Ancient Lands Portal type with invalidValues', async () => {
+    const { command } = createCommandWithClient();
+    const { interaction } = buildChatInputInteraction({
+      type: RETIRED_TYPE,
+      rarity: RARITY_4_4,
+      map: MAP_ELDERSLEEP,
+      time: '30',
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(replyErrorSpy.mock.calls).toEqual([[interaction, 'invalidValues']]);
+    expect(createObjectiveMock).not.toHaveBeenCalled();
+  });
+
+  it.each(
+    [TYPE_CORE, TYPE_DRAGON].flatMap((type) =>
+      RETIRED_SIZES.map((size): [string, string] => [type, size]),
+    ),
+  )(
+    'objective-taxonomy AC-29: rejects %s with the retired rarity %s as invalidValues, ahead of unexpectedRarity and invalidTypeRarity',
+    async (type, size) => {
+      const { command } = createCommandWithClient();
+      const { interaction } = buildChatInputInteraction({
+        type,
+        rarity: size,
+        map: MAP_ELDERSLEEP,
+        time: '30',
+      });
+
+      await command.chatInputRun(interaction);
+
+      expect(replyErrorSpy.mock.calls).toEqual([[interaction, 'invalidValues']]);
+      expect(createObjectiveMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('AddObjectiveCommand autocomplete without retired portal values (objective-taxonomy AC-30)', () => {
+  const autocompleteValues = async (
+    focusedName: string,
+    chosen: { type?: string; rarity?: string },
+  ): Promise<string[]> => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const chosenValues: Record<string, string | undefined> = chosen;
+    const interaction = {
+      options: {
+        getFocused: () => ({ name: focusedName, value: '' }),
+        getString: (name: string) => chosenValues[name] ?? null,
+      },
+      respond,
+    } as unknown as Command.AutocompleteInteraction;
+    const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
+
+    await command.autocompleteRun(interaction);
+
+    const [[choices]] = respond.mock.calls as [[{ value: string }[]]];
+
+    return choices.map((choice) => choice.value);
+  };
+
+  it('objective-taxonomy AC-30: offers exactly the seven tracked types in type autocomplete when no rarity is chosen', async () => {
+    const values = await autocompleteValues('type', {});
+
+    expect(new Set(values)).toEqual(new Set(TRACKED_TYPES_WITH_RARITY.map(([type]) => type)));
+  });
+
+  it.each(RETIRED_SIZES)(
+    'objective-taxonomy AC-30: never offers Ancient Lands Portal in type autocomplete when the retired rarity %s is chosen',
+    async (size) => {
+      const values = await autocompleteValues('type', { rarity: size });
+
+      expect(values).not.toContain(RETIRED_TYPE);
+    },
+  );
+
+  it('objective-taxonomy AC-30: offers exactly the numeric tiers and named rarities in rarity autocomplete when no type is chosen', async () => {
+    const values = await autocompleteValues('rarity', {});
+
+    expect(new Set(values)).toEqual(
+      new Set(['4.4', '5.4', '6.4', '7.4', '8.4', 'Green', 'Blue', 'Purple', 'Gold']),
+    );
+  });
+
+  it.each([...TRACKED_TYPES_WITH_RARITY.map(([type]) => type), RETIRED_TYPE])(
+    'objective-taxonomy AC-30: never offers Small, Medium or Large in rarity autocomplete when the type %s is chosen',
+    async (type) => {
+      const values = await autocompleteValues('rarity', { type });
+
+      expect(values.filter((value) => RETIRED_SIZES.includes(value))).toEqual([]);
+    },
+  );
+});
+
+describe('AddObjectiveCommand single delay cap (objective-taxonomy AC-31, AC-10, AC-11)', () => {
+  let replyErrorSpy: MockInstance<typeof replyModule.replyError>;
+
+  beforeEach(() => {
+    createObjectiveMock.mockReset();
+    createObjectiveMock.mockResolvedValue({ id: 1 });
+    findAllObjectiveMock.mockReset();
+    findAllObjectiveMock.mockResolvedValue([]);
+    replyErrorSpy = vi.spyOn(replyModule, 'replyError').mockResolvedValue(undefined);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T09:30:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    replyErrorSpy.mockRestore();
+  });
+
+  it.each(TRACKED_TYPES_WITH_RARITY)(
+    'objective-taxonomy AC-31 / AC-10: accepts a 1440-minute delay on %s and stores it unchanged',
+    async (type, rarity) => {
+      const { command } = createCommandWithClient();
+      const { interaction } = buildChatInputInteraction({
+        type,
+        rarity,
+        map: MAP_ELDERSLEEP,
+        time: '1440',
+      });
+
+      await command.chatInputRun(interaction);
+
+      expect(createObjectiveMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type, time: new Date('2026-10-17T09:30:00Z') }),
+      );
+    },
+  );
+
+  it.each(TRACKED_TYPES_WITH_RARITY)(
+    'objective-taxonomy AC-31: rejects a 1441-minute delay on %s with timeOutOfRange',
+    async (type, rarity) => {
+      const { command } = createCommandWithClient();
+      const { interaction } = buildChatInputInteraction({
+        type,
+        rarity,
+        map: MAP_ELDERSLEEP,
+        time: '1441',
+      });
+
+      await command.chatInputRun(interaction);
+
+      expect(replyErrorSpy.mock.calls).toEqual([[interaction, 'timeOutOfRange']]);
+      expect(createObjectiveMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('objective-taxonomy AC-11: reports invalidTimeFormat, never timeOutOfRange, for "25h90" on Core', async () => {
+    const { command } = createCommandWithClient();
+    const { interaction } = buildChatInputInteraction({
+      type: TYPE_CORE,
+      rarity: RARITY_LEGENDARY,
+      map: MAP_ELDERSLEEP,
+      time: '25h90',
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(replyErrorSpy.mock.calls).toEqual([[interaction, 'invalidTimeFormat']]);
+    expect(createObjectiveMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddObjectiveCommand board source (objective-selection AC-1, AC-3)', () => {
+  beforeEach(() => {
+    createObjectiveMock.mockReset();
+    createObjectiveMock.mockResolvedValue({ id: 1 });
+    findAllObjectiveMock.mockReset();
+    findAllObjectiveMock.mockResolvedValue([]);
+    getMessageMock.mockClear();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T09:30:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    getActiveObjectivesMock.mockResolvedValue([]);
+  });
+
+  it('objective-selection AC-1 / AC-3: renders the board from getActiveObjectives(guildId), without re-filtering it locally', async () => {
+    const activeObjectives = [
+      { id: 7, guildId: 'guild-1', type: TYPE_CORE, time: new Date('2026-10-16T09:00:00Z') },
+      { id: 8, guildId: 'guild-1', type: TYPE_DRAGON, time: new Date('2026-10-16T10:00:00Z') },
+    ] as unknown as Objective[];
+
+    getActiveObjectivesMock.mockResolvedValue(activeObjectives);
+
+    const { command, client } = createCommandWithClient();
+    const { interaction } = buildChatInputInteraction({
+      type: TYPE_CORE,
+      rarity: RARITY_LEGENDARY,
+      map: MAP_ELDERSLEEP,
+      time: '30',
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(getActiveObjectivesMock).toHaveBeenCalledWith('guild-1');
+    expect(getMessageMock).toHaveBeenCalledWith(client, 'objective', activeObjectives);
   });
 });

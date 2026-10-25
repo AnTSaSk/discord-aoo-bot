@@ -1,3 +1,5 @@
+import { Op } from '@sequelize/core';
+
 // Config
 import { getLogger } from '@/config/logger.js';
 
@@ -11,6 +13,7 @@ export interface ResolvedGuildSettings {
   announcementsEnabled: boolean;
   mentionEveryone: boolean;
   lastAnnouncedVersion: string | null;
+  readonly removedAt: Date | null;
 }
 
 export type GuildSettingsFields = Partial<
@@ -51,6 +54,7 @@ export const getGuildSettings = async (guildId: string): Promise<ResolvedGuildSe
       announcementsEnabled: record?.announcementsEnabled ?? DEFAULT_ANNOUNCEMENTS_ENABLED,
       mentionEveryone: record?.mentionEveryone ?? DEFAULT_MENTION_EVERYONE,
       lastAnnouncedVersion: record?.lastAnnouncedVersion ?? null,
+      removedAt: record?.removedAt ?? null,
     };
   } catch (error) {
     logger.error({ error, guildId }, 'Failed to read guild settings');
@@ -117,6 +121,88 @@ export const findGuildsAlreadyAnnounced = async (version: string): Promise<strin
     return records.map((record) => record.guildId);
   } catch (error) {
     logger.error({ error, version }, 'Failed to list guilds already announced');
+
+    throw error;
+  }
+};
+
+export const markGuildRemoved = async (guildId: string, removedAt: Date): Promise<void> => {
+  const logger = getLogger();
+
+  try {
+    await getGuildSettingsModel().upsert({ guildId, removedAt });
+
+    logger.info({ guildId, removedAt }, 'Guild marked as removed');
+  } catch (error) {
+    logger.error({ error, guildId }, 'Failed to mark guild as removed');
+
+    throw error;
+  }
+};
+
+export const clearGuildRemoval = async (guildId: string): Promise<void> => {
+  const logger = getLogger();
+
+  try {
+    const [affectedCount] = await getGuildSettingsModel().update(
+      { removedAt: null },
+      { where: { guildId } },
+    );
+
+    logger.debug({ guildId, affectedCount }, 'clearGuildRemoval completed');
+  } catch (error) {
+    logger.error({ error, guildId }, 'Failed to clear guild removal');
+
+    throw error;
+  }
+};
+
+export const findGuildsRemovedBefore = async (threshold: Date): Promise<string[]> => {
+  const logger = getLogger();
+
+  try {
+    const records = await getGuildSettingsModel().findAll({
+      attributes: ['guildId'],
+      where: { removedAt: { [Op.lt]: threshold } },
+    });
+
+    logger.debug({ threshold, count: records.length }, 'findGuildsRemovedBefore completed');
+
+    return records.map((record) => record.guildId);
+  } catch (error) {
+    logger.error({ error, threshold }, 'Failed to list guilds removed before threshold');
+
+    throw error;
+  }
+};
+
+export const listGuildRemovalStates = async (): Promise<
+  { guildId: string; removedAt: Date | null }[]
+> => {
+  const logger = getLogger();
+
+  try {
+    const records = await getGuildSettingsModel().findAll({
+      attributes: ['guildId', 'removedAt'],
+    });
+
+    logger.debug({ count: records.length }, 'listGuildRemovalStates completed');
+
+    return records.map((record) => ({ guildId: record.guildId, removedAt: record.removedAt }));
+  } catch (error) {
+    logger.error({ error }, 'Failed to list guild removal states');
+
+    throw error;
+  }
+};
+
+export const deleteGuildSettings =async (guildId: string): Promise<void> => {
+  const logger = getLogger();
+
+  try {
+    await getGuildSettingsModel().destroy({ where: { guildId } });
+  } catch (error) {
+    logger.error({ error, guildId }, 'Failed to delete guild settings');
 
     throw error;
   }

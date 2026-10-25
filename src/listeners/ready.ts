@@ -15,6 +15,7 @@ import { CRON_SCHEDULE } from '@/constants/config.js';
 // Tasks
 import { broadcastAnnouncement } from '@/tasks/announcement.js';
 import { cronTask, registerScheduledTask } from '@/tasks/cron.js';
+import { reconcileGuildRemovals } from '@/tasks/retentionReconcile.js';
 
 export class ReadyListener extends Listener {
   constructor(context: Listener.LoaderContext, options: Listener.Options) {
@@ -31,24 +32,45 @@ export class ReadyListener extends Listener {
 
     logger.info(`Logged in as ${displayName}`);
 
-    void Promise.all([
-      getObjectiveModel().sync(),
-      getGuildSettingsModel().sync(),
-    ])
-      .then(async () => {
-        logger.info('All models were synchronized successfully');
-
-        // Broadcast reads guild_settings, so it must wait for the schema
-        await broadcastAnnouncement(client);
-      })
-      .catch((error: unknown) => {
-        logger.error(error, 'Failed to synchronize models or broadcast the announcement');
+    const scheduleCron = (): void => {
+      const scheduledTask = cron.schedule(CRON_SCHEDULE, () => {
+        void cronTask(logger, client);
       });
 
-    const scheduledTask = cron.schedule(CRON_SCHEDULE, () => {
-      void cronTask(logger, client);
-    });
+      registerScheduledTask(scheduledTask);
+    };
 
-    registerScheduledTask(scheduledTask);
+    const startup = async (): Promise<void> => {
+      try {
+        await Promise.all([
+          getObjectiveModel().sync(),
+          getGuildSettingsModel().sync(),
+        ]);
+      } catch (error) {
+        logger.error(error, 'Failed to synchronize models');
+        scheduleCron();
+
+        return;
+      }
+
+      logger.info('All models were synchronized successfully');
+
+      try {
+        await reconcileGuildRemovals(client, new Date());
+      } catch (error) {
+        logger.error(error, 'Failed to reconcile guild removals');
+      }
+
+      scheduleCron();
+
+      try {
+        // Broadcast reads guild_settings, so it must wait for the schema
+        await broadcastAnnouncement(client);
+      } catch (error) {
+        logger.error(error, 'Failed to broadcast the announcement');
+      }
+    };
+
+    void startup();
   }
 }

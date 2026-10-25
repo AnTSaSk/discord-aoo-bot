@@ -1,15 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Command } from '@sapphire/framework';
 
 import { ListObjectivesCommand } from '@/commands/listObjectives.js';
+import type { Objective } from '@/models/objective.model.js';
 
-const { findObjectiveByGuildIdMock, recordLastUsedChannelMock } = vi.hoisted(() => ({
-  findObjectiveByGuildIdMock: vi.fn(),
+const { getActiveObjectivesMock, getMessageMock, recordLastUsedChannelMock } = vi.hoisted(() => ({
+  getActiveObjectivesMock: vi.fn(),
+  getMessageMock: vi.fn().mockResolvedValue([]),
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/services/objective.service.js', () => ({
-  findObjectiveByGuildId: findObjectiveByGuildIdMock,
+  getActiveObjectives: getActiveObjectivesMock,
 }));
 
 vi.mock('@/services/guildSettings.service.js', () => ({
@@ -18,7 +20,7 @@ vi.mock('@/services/guildSettings.service.js', () => ({
 
 vi.mock('@/tasks/message.js', () => ({
   deletePreviousMessage: vi.fn().mockResolvedValue(undefined),
-  getMessage: vi.fn().mockResolvedValue([]),
+  getMessage: getMessageMock,
   sendMessageBatches: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -46,30 +48,29 @@ const buildInteraction = (
   return { interaction, reply };
 };
 
-const createCommand = (): ListObjectivesCommand => {
+const createCommand = (): { command: ListObjectivesCommand; client: object } => {
   const command = Object.create(ListObjectivesCommand.prototype) as ListObjectivesCommand;
+  const client = {
+    channels: { fetch: vi.fn().mockResolvedValue({ id: 'channel-1' }) },
+  };
 
   Object.defineProperty(command, 'container', {
-    value: {
-      client: {
-        channels: { fetch: vi.fn().mockResolvedValue({ id: 'channel-1' }) },
-      },
-    },
+    value: { client },
   });
 
-  return command;
+  return { command, client };
 };
 
 describe('ListObjectivesCommand last used channel (guild-settings AC-9)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    findObjectiveByGuildIdMock.mockResolvedValue([]);
+    getActiveObjectivesMock.mockResolvedValue([]);
   });
 
   it('records the interaction channel as the last one used by the guild', async () => {
     const { interaction } = buildInteraction();
 
-    await createCommand().chatInputRun(interaction);
+    await createCommand().command.chatInputRun(interaction);
 
     expect(recordLastUsedChannelMock).toHaveBeenCalledWith('guild-1', 'channel-1');
   });
@@ -77,7 +78,7 @@ describe('ListObjectivesCommand last used channel (guild-settings AC-9)', () => 
   it('records the channel the command was actually run in', async () => {
     const { interaction } = buildInteraction({ channelId: 'channel-77' });
 
-    await createCommand().chatInputRun(interaction);
+    await createCommand().command.chatInputRun(interaction);
 
     expect(recordLastUsedChannelMock).toHaveBeenCalledWith('guild-1', 'channel-77');
   });
@@ -85,8 +86,37 @@ describe('ListObjectivesCommand last used channel (guild-settings AC-9)', () => 
   it('records nothing when the command runs outside a guild', async () => {
     const { interaction } = buildInteraction({ guildId: null });
 
-    await createCommand().chatInputRun(interaction);
+    await createCommand().command.chatInputRun(interaction);
 
     expect(recordLastUsedChannelMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ListObjectivesCommand board source (objective-selection AC-1, AC-3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T09:30:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('objective-selection AC-1 / AC-3: renders the board from getActiveObjectives(guildId), without re-filtering it locally', async () => {
+    const activeObjectives = [
+      { id: 7, guildId: 'guild-1', type: 'Core', time: new Date('2026-10-16T09:00:00Z') },
+      { id: 8, guildId: 'guild-1', type: 'Dragon', time: new Date('2026-10-16T10:00:00Z') },
+    ] as unknown as Objective[];
+
+    getActiveObjectivesMock.mockResolvedValue(activeObjectives);
+
+    const { command, client } = createCommand();
+    const { interaction } = buildInteraction();
+
+    await command.chatInputRun(interaction);
+
+    expect(getActiveObjectivesMock).toHaveBeenCalledWith('guild-1');
+    expect(getMessageMock).toHaveBeenCalledWith(client, 'objective', activeObjectives);
   });
 });

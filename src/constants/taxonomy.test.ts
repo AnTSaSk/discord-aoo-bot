@@ -2,24 +2,14 @@ import { describe, it, expect } from 'vitest';
 
 import { TYPES } from '@/constants/type.js';
 import { RARITIES, RARITY_NONE } from '@/constants/rarity.js';
-import {
-  MAX_TOTAL_MINUTES,
-  MAX_PORTAL_SMALL_MINUTES,
-  MAX_PORTAL_MEDIUM_MINUTES,
-  MAX_PORTAL_LARGE_MINUTES,
-} from '@/constants/config.js';
+import { MAX_TOTAL_MINUTES } from '@/constants/config.js';
 
-describe('TYPES (Dragonfire taxonomy)', () => {
-  it('contains exactly 8 types', () => {
-    expect(TYPES).toHaveLength(8);
-  });
-
-  it('includes the exact value Ancient Lands Portal', () => {
-    expect(TYPES).toContain('Ancient Lands Portal');
-  });
-
-  it('includes the exact value Dragon', () => {
-    expect(TYPES).toContain('Dragon');
+describe('TYPES (tracked types referential)', () => {
+  it('objective-taxonomy AC-28: holds exactly the seven tracked types, without Ancient Lands Portal', () => {
+    expect(TYPES).toHaveLength(7);
+    expect(new Set(TYPES)).toEqual(
+      new Set(['Fiber node', 'Hide node', 'Ore node', 'Wood node', 'Core', 'Vortex', 'Dragon']),
+    );
   });
 
   it('has no duplicate entries', () => {
@@ -27,21 +17,12 @@ describe('TYPES (Dragonfire taxonomy)', () => {
   });
 });
 
-describe('RARITIES (Dragonfire portal sizes)', () => {
-  it('contains exactly 12 entries (9 existing + 3 sizes)', () => {
-    expect(RARITIES).toHaveLength(12);
-  });
-
-  it('includes the exact value Small', () => {
-    expect(RARITIES).toContain('Small');
-  });
-
-  it('includes the exact value Medium', () => {
-    expect(RARITIES).toContain('Medium');
-  });
-
-  it('includes the exact value Large', () => {
-    expect(RARITIES).toContain('Large');
+describe('RARITIES (rarity referential)', () => {
+  it('objective-taxonomy AC-29: holds exactly the numeric tiers and named rarities, without Small, Medium or Large', () => {
+    expect(RARITIES).toHaveLength(9);
+    expect(new Set(RARITIES)).toEqual(
+      new Set(['4.4', '5.4', '6.4', '7.4', '8.4', 'Green', 'Blue', 'Purple', 'Gold']),
+    );
   });
 
   it('has no duplicate entries', () => {
@@ -63,25 +44,8 @@ describe('RARITY_NONE sentinel', () => {
   });
 });
 
-describe('portal size time caps (config.ts)', () => {
-  it('sets MAX_PORTAL_SMALL_MINUTES to 30', () => {
-    expect(MAX_PORTAL_SMALL_MINUTES).toBe(30);
-  });
-
-  it('sets MAX_PORTAL_MEDIUM_MINUTES to 60', () => {
-    expect(MAX_PORTAL_MEDIUM_MINUTES).toBe(60);
-  });
-
-  it('sets MAX_PORTAL_LARGE_MINUTES to 180', () => {
-    expect(MAX_PORTAL_LARGE_MINUTES).toBe(180);
-  });
-
-  it('orders the three caps strictly increasing (small < medium < large)', () => {
-    expect(MAX_PORTAL_SMALL_MINUTES).toBeLessThan(MAX_PORTAL_MEDIUM_MINUTES);
-    expect(MAX_PORTAL_MEDIUM_MINUTES).toBeLessThan(MAX_PORTAL_LARGE_MINUTES);
-  });
-
-  it('keeps the default MAX_TOTAL_MINUTES strictly above the largest portal cap', () => {
-    expect(MAX_TOTAL_MINUTES).toBeGreaterThan(MAX_PORTAL_LARGE_MINUTES);
+describe('single delay cap (config.ts)', () => {
+  it('objective-taxonomy AC-31: sets the single cap MAX_TOTAL_MINUTES to 1440', () => {
+    expect(MAX_TOTAL_MINUTES).toBe(1440);
   });
 });

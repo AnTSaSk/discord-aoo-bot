@@ -259,7 +259,7 @@ describe('getMessage — resilience', () => {
   });
 });
 
-describe('getMessage — new type sections (AC-12, AC-14, AC-15, AC-16, AC-17)', () => {
+describe('getMessage — type sections (AC-12, AC-15, AC-17, AC-32)', () => {
   it('renders a Dragon line with no rarity segment at all (AC-12)', async () => {
     const { client } = buildClient({
       members: { 'user-1': { displayName: 'Slayer' } },
@@ -301,16 +301,6 @@ describe('getMessage — new type sections (AC-12, AC-14, AC-15, AC-16, AC-17)',
     expect(line).not.toMatch(/— —/);
   });
 
-  it('presents at least one active Ancient Lands Portal under its own section (AC-14)', async () => {
-    const { client } = buildClient({
-      members: { 'user-1': { displayName: 'Scout' } },
-    });
-
-    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Small' })]);
-
-    expect(renderedText(batches)).toContain('## Ancient Lands Portal ##');
-  });
-
   it('presents at least one active Dragon under its own section (AC-15)', async () => {
     const { client } = buildClient({
       members: { 'user-1': { displayName: 'Slayer' } },
@@ -319,64 +309,6 @@ describe('getMessage — new type sections (AC-12, AC-14, AC-15, AC-16, AC-17)',
     const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Dragon', rarity: 'n/a' })]);
 
     expect(renderedText(batches)).toContain('## Dragon ##');
-  });
-
-  it('shows the portal size on its objective line (AC-16)', async () => {
-    const { client } = buildClient({
-      members: { 'user-1': { displayName: 'Scout' } },
-    });
-
-    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Large' })]);
-
-    const line = renderedText(batches)
-      .split('\n')
-      .find((row) => row.startsWith('- #'));
-
-    expect(line).toContain('Large');
-  });
-
-  it('distinguishes portal sizes on the line rather than a fixed label (AC-16)', async () => {
-    const { client } = buildClient({
-      members: { 'user-1': { displayName: 'Scout' } },
-    });
-
-    const batchesSmall = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Small' })]);
-    const batchesMedium = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Medium' })]);
-
-    expect(renderedText(batchesSmall)).toContain('Small');
-    expect(renderedText(batchesSmall)).not.toContain('Medium');
-    expect(renderedText(batchesMedium)).toContain('Medium');
-    expect(renderedText(batchesMedium)).not.toContain('Small');
-  });
-
-  it('prefixes the portal size with a green circle for Small, the name staying next to it (AC-D1)', async () => {
-    const { client } = buildClient({
-      members: { 'user-1': { displayName: 'Scout' } },
-    });
-
-    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Small' })]);
-
-    expect(renderedText(batches)).toContain('**:green_circle: Small**');
-  });
-
-  it('prefixes the portal size with a blue circle for Medium, the name staying next to it (AC-D1)', async () => {
-    const { client } = buildClient({
-      members: { 'user-1': { displayName: 'Scout' } },
-    });
-
-    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Medium' })]);
-
-    expect(renderedText(batches)).toContain('**:blue_circle: Medium**');
-  });
-
-  it('prefixes the portal size with an orange circle for Large, the name staying next to it (AC-D1)', async () => {
-    const { client } = buildClient({
-      members: { 'user-1': { displayName: 'Scout' } },
-    });
-
-    const batches = await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', type: 'Ancient Lands Portal', rarity: 'Large' })]);
-
-    expect(renderedText(batches)).toContain('**:orange_circle: Large**');
   });
 
   it('never displays a rarity segment on a Dragon line (AC-D2)', async () => {
@@ -427,6 +359,30 @@ describe('getMessage — new type sections (AC-12, AC-14, AC-15, AC-16, AC-17)',
     expect(text).toContain('## Vortex ##');
     expect(text).toContain('**:green_circle: Green**');
     expect(text).toContain('**:blue_circle: Blue**');
+  });
+
+  it('objective-taxonomy AC-32 / AC-17: renders exactly the Node, Core, Vortex and Dragon sections, never an Ancient Lands Portal one, for a board holding every tracked type', async () => {
+    const { client } = buildClient({
+      members: { 'user-1': { displayName: 'One' } },
+    });
+
+    const batches = await getMessage(client, 'objective', [
+      buildObjective({ id: 1, userId: 'user-1', type: 'Fiber node', rarity: '4.4', map: 'Lymhurst' }),
+      buildObjective({ id: 2, userId: 'user-1', type: 'Hide node', rarity: '5.4', map: 'Lymhurst' }),
+      buildObjective({ id: 3, userId: 'user-1', type: 'Ore node', rarity: '6.4', map: 'Lymhurst' }),
+      buildObjective({ id: 4, userId: 'user-1', type: 'Wood node', rarity: '7.4', map: 'Lymhurst' }),
+      buildObjective({ id: 5, userId: 'user-1', type: 'Core', rarity: 'Gold', map: 'Martlock' }),
+      buildObjective({ id: 6, userId: 'user-1', type: 'Vortex', rarity: 'Purple', map: 'Martlock' }),
+      buildObjective({ id: 7, userId: 'user-1', type: 'Dragon', rarity: 'n/a', map: 'Caerleon' }),
+    ]);
+
+    const text = renderedText(batches);
+    const sections = [...text.matchAll(/^## (.+) ##$/gm)]
+      .map((match) => match[1])
+      .filter((name) => name !== 'Objective Timers');
+
+    expect(sections).toEqual(['Node', 'Core', 'Vortex', 'Dragon']);
+    expect(text).not.toContain('Ancient Lands Portal');
   });
 });
 

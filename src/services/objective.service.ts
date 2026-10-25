@@ -3,6 +3,9 @@ import { Op, UniqueConstraintError, type FindOptions, type InferAttributes } fro
 // Config
 import { getLogger } from '@/config/logger.js';
 
+// Constants
+import { TYPES } from '@/constants/type.js';
+
 // Models
 import { getObjectiveModel, type Objective } from '@/models/objective.model.js';
 
@@ -33,34 +36,6 @@ export const findAllObjective = async (
   }
 };
 
-export const findObjectiveByGuildId = async (guildId: string): Promise<Objective[]> => {
-  const logger = getLogger();
-  const startTime = Date.now();
-
-  try {
-    const objectives = await getObjectiveModel().findAll({
-      order: [['time', 'ASC']],
-      where: { guildId },
-    });
-    const duration = Date.now() - startTime;
-
-    logger.debug(
-      {
-        guildId,
-        count: objectives.length,
-        duration,
-      },
-      'Found objectives for guild',
-    );
-
-    return objectives;
-  } catch (error) {
-    logger.error({ error, guildId }, 'Failed to find objectives by guild');
-
-    throw error;
-  }
-};
-
 export const getActiveObjectives = async (guildId: string): Promise<Objective[]> => {
   const logger = getLogger();
   const startTime = Date.now();
@@ -68,7 +43,7 @@ export const getActiveObjectives = async (guildId: string): Promise<Objective[]>
   try {
     const objectives = await getObjectiveModel().findAll({
       order: [['time', 'ASC']],
-      where: { guildId, time: { [Op.gt]: new Date() } },
+      where: { guildId, type: { [Op.in]: TYPES }, time: { [Op.gt]: new Date() } },
     });
     const duration = Date.now() - startTime;
 
@@ -228,6 +203,18 @@ export const deleteObjectivesByIds = async (ids: number[]): Promise<number> => {
     return deletedCount;
   } catch (error) {
     logger.error({ error, ids }, 'Failed to batch delete objectives');
+
+    throw error;
+  }
+};
+
+export const deleteObjectivesByGuildId = async (guildId: string): Promise<number> => {
+  const logger = getLogger();
+
+  try {
+    return await getObjectiveModel().destroy({ where: { guildId } });
+  } catch (error) {
+    logger.error({ error, guildId }, 'Failed to delete guild objectives');
 
     throw error;
   }

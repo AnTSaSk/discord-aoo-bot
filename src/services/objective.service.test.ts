@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Op, UniqueConstraintError } from '@sequelize/core';
 
+import { TYPES } from '@/constants/type.js';
 import { getObjectiveModel, type Objective } from '@/models/objective.model.js';
 import {
   deleteObjective,
+  deleteObjectivesByGuildId,
   getActiveObjectives,
   updateObjective,
 } from '@/services/objective.service.js';
@@ -47,6 +49,24 @@ describe('getActiveObjectives', () => {
 
     expect(where?.guildId).toBe('guild-1');
     expect(where?.time?.[Op.gt]).toBeInstanceOf(Date);
+  });
+
+  it('objective-selection AC-1b: restricts the query itself to the tracked types referential, alongside guildId and time', async () => {
+    vi.mocked(getObjectiveModel().findAll).mockResolvedValue([]);
+
+    await getActiveObjectives('guild-1');
+
+    const callArgs = vi.mocked(getObjectiveModel().findAll).mock.calls[0]?.[0];
+    const where = callArgs?.where as
+      {
+        guildId?: string;
+        time?: Record<symbol, unknown>;
+        type?: Record<symbol, unknown>;
+      } | undefined;
+
+    expect(where?.guildId).toBe('guild-1');
+    expect(where?.time?.[Op.gt]).toBeInstanceOf(Date);
+    expect(where?.type?.[Op.in]).toEqual(TYPES);
   });
 
   it('includes an objective whose time is in the future (AC-1)', async () => {
@@ -173,5 +193,26 @@ describe('deleteObjective', () => {
       { where?: Record<string, unknown> } | undefined;
 
     expect(options?.where).toMatchObject({ guildId: 'guild-1', id: 42 });
+  });
+});
+
+describe('deleteObjectivesByGuildId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('AC-PURGE-7: destroys only the objectives of the requested guild', async () => {
+    vi.mocked(getObjectiveModel().destroy).mockResolvedValue(3);
+
+    await deleteObjectivesByGuildId('guild-42');
+
+    expect(getObjectiveModel().destroy).toHaveBeenCalledTimes(1);
+    expect(getObjectiveModel().destroy).toHaveBeenCalledWith({ where: { guildId: 'guild-42' } });
+  });
+
+  it('AC-PURGE-8: returns the number of destroyed objectives', async () => {
+    vi.mocked(getObjectiveModel().destroy).mockResolvedValue(3);
+
+    await expect(deleteObjectivesByGuildId('guild-42')).resolves.toBe(3);
   });
 });

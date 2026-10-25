@@ -1,17 +1,10 @@
 import { Op } from '@sequelize/core';
-import {
-  MessageFlags,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
-  TextDisplayBuilder,
-  type Guild,
-  type GuildBasedChannel,
-  type SendableChannels,
-} from 'discord.js';
+import type { Guild, GuildBasedChannel, SendableChannels } from 'discord.js';
 import type { SapphireClient } from '@sapphire/framework';
 
 // Config
 import { getLogger } from '@/config/logger.js';
+import { runningVersion } from '@/config/version.js';
 
 // Constants
 import {
@@ -30,6 +23,13 @@ import {
 import { findAllObjective } from '@/services/objective.service.js';
 
 // Utils
+import {
+  assertFitsWithEveryoneMention,
+  forEachInBatches,
+  resolveAnnouncementChannelId,
+  withEveryoneMention,
+} from '@/utils/announcementDelivery.js';
+import { buildSectionedMessage, componentsV2Options } from '@/utils/componentsV2.js';
 import { canBotWriteToChannel } from '@/utils/permissions.js';
 
 type ChannelOrigin = 'configured' | 'fallback';
@@ -64,33 +64,10 @@ export const getAnnounceableVersion = (): Announcement | null => {
   return [...ANNOUNCEMENTS].sort((a, b) => compareVersions(b.version, a.version))[0] ?? null;
 };
 
-const buildComponents = (
-  announcement: Announcement,
-  origin: ChannelOrigin,
-): (TextDisplayBuilder | SeparatorBuilder)[] => {
-  const separator = (): SeparatorBuilder =>
-    new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large);
-
-  const components: (TextDisplayBuilder | SeparatorBuilder)[] =
-    [new TextDisplayBuilder().setContent(announcement.title)];
-
-  announcement.sections.forEach((section, index) => {
-    if (index > 0) {
-      components.push(separator());
-    }
-
-    components.push(new TextDisplayBuilder().setContent(section));
-  });
-
-  components.push(separator());
-  components.push(new TextDisplayBuilder().setContent(`-# ${announcement.footer}`));
-
-  if (origin === 'fallback') {
-    components.push(new TextDisplayBuilder().setContent(`-# ${ANNOUNCEMENT_FALLBACK_NOTICE}`));
-  }
-
-  return components;
-};
+const trailerOf = (announcement: Announcement, origin: ChannelOrigin): string[] => [
+  `-# ${announcement.footer}`,
+  ...(origin === 'fallback' ? [`-# ${ANNOUNCEMENT_FALLBACK_NOTICE}`] : []),
+];
 
 const seedLastUsedChannels = async (guildIds: string[]): Promise<Map<string, string>> => {
   const seeds = new Map<string, string>();
@@ -136,10 +113,17 @@ const sendTo = async (target: Target, announcement: Announcement): Promise<boole
   const logger = getLogger();
 
   try {
+    const trailer = trailerOf(announcement, target.origin);
+
+    if (target.mentionEveryone) {
+      assertFitsWithEveryoneMention(announcement.title, announcement.sections, trailer);
+    }
+
+    const components = buildSectionedMessage(announcement.title, announcement.sections, trailer);
+
     await target.channel.send({
-      components: buildComponents(announcement, target.origin),
-      flags: MessageFlags.IsComponentsV2,
-      ...(target.mentionEveryone ? { allowedMentions: { parse: ['everyone' as const] } } : {}),
+      components: target.mentionEveryone ? withEveryoneMention(components) : components,
+      ...componentsV2Options(target.mentionEveryone),
     });
 
     return true;
@@ -159,6 +143,24 @@ export const broadcastAnnouncement = async (client: SapphireClient): Promise<voi
 
   if (!announcement) {
     logger.info('No announcement declared, nothing to broadcast');
+
+    return;
+  }
+
+  if (runningVersion === undefined) {
+    logger.error(
+      { announceableVersion: announcement.version },
+      'Running version is unavailable, announcement skipped',
+    );
+
+    return;
+  }
+
+  if (announcement.version !== runningVersion) {
+    logger.warn(
+      { announceableVersion: announcement.version, runningVersion },
+      'Announceable version differs from the running version, announcement skipped',
+    );
 
     return;
   }
@@ -207,8 +209,10 @@ export const broadcastAnnouncement = async (client: SapphireClient): Promise<voi
     }
 
     const configuredId = settings.announcementChannelId;
-    const fallbackId = settings.lastUsedChannelId ?? seeds.get(guild.id) ?? null;
-    const channelId = configuredId ?? fallbackId;
+    const channelId = resolveAnnouncementChannelId({
+      ...settings,
+      lastUsedChannelId: settings.lastUsedChannelId ?? seeds.get(guild.id) ?? null,
+    });
 
     if (!channelId) {
       logger.info({ guildId: guild.id }, 'No announcement target for guild, skipping');
@@ -259,25 +263,19 @@ export const broadcastAnnouncement = async (client: SapphireClient): Promise<voi
     });
   }
 
-  for (let index = 0; index < targets.length; index += ANNOUNCEMENT_BATCH_SIZE) {
-    const batch = targets.slice(index, index + ANNOUNCEMENT_BATCH_SIZE);
+  await forEachInBatches(
+    targets,
+    { size: ANNOUNCEMENT_BATCH_SIZE, delayMs: ANNOUNCEMENT_BATCH_DELAY_MS },
+    async (target) => {
+      const sent = await sendTo(target, announcement);
 
-    await Promise.all(
-      batch.map(async (target) => {
-        const sent = await sendTo(target, announcement);
-
-        if (sent) {
-          await updateGuildSettings(target.guildId, {
-            lastAnnouncedVersion: announcement.version,
-          });
-        }
-      }),
-    );
-
-    if (index + ANNOUNCEMENT_BATCH_SIZE < targets.length) {
-      await new Promise((resolve) => setTimeout(resolve, ANNOUNCEMENT_BATCH_DELAY_MS));
-    }
-  }
+      if (sent) {
+        await updateGuildSettings(target.guildId, {
+          lastAnnouncedVersion: announcement.version,
+        });
+      }
+    },
+  );
 
   logger.info(
     {

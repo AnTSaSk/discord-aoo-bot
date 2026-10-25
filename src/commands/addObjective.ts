@@ -22,7 +22,6 @@ import {
   isValidTypeRarityCombination,
   MAPS_ALL_SORTED,
 } from '@/utils/objectiveValidation.js';
-import { resolveTimeBoundMinutes } from '@/utils/objectiveTimeBounds.js';
 import { TYPE_DRAGON, TYPES } from '@/constants/type.js';
 
 // Services
@@ -30,7 +29,7 @@ import { recordLastUsedChannel } from '@/services/guildSettings.service.js';
 import {
   createObjective,
   findAllObjective,
-  findObjectiveByGuildId,
+  getActiveObjectives,
 } from '@/services/objective.service.js';
 
 // Tasks
@@ -70,7 +69,7 @@ export class AddObjectiveCommand extends Command {
         .addStringOption((option: SlashCommandStringOption) =>
           option
             .setName('rarity')
-            .setDescription('Rarity/Tier/Portal size - n/a for Dragon')
+            .setDescription('Rarity/Tier - n/a for Dragon')
             .setRequired(true)
             .setAutocomplete(true),
         )
@@ -248,8 +247,7 @@ export class AddObjectiveCommand extends Command {
       return;
     }
 
-    const timeBoundMinutes = resolveTimeBoundMinutes(objectiveType, resolvedRarity);
-    const parsedTime = parseTimeInput(objectiveTime, timeBoundMinutes);
+    const parsedTime = parseTimeInput(objectiveTime);
 
     if (!parsedTime.ok) {
       logger.error(
@@ -274,8 +272,9 @@ export class AddObjectiveCommand extends Command {
     // Save data
     if (guildId && channelId) {
       const channel = await this.container.client.channels.fetch(channelId);
-      const time = getRelativeTime(new Date(), objectiveTime);
-      const maintenance = isMaintenanceAdded(time);
+      const now = new Date();
+      const time = getRelativeTime(now, objectiveTime);
+      const maintenance = isMaintenanceAdded(time, now);
 
       // Avoid duplicate objective - Range of 8 minutes
       const timeStart = time.subtract(DUPLICATE_TIME_WINDOW_MINUTES, 'minute');
@@ -343,10 +342,7 @@ It will be available at ${time.format('HH:mm')} UTC (<t:${String(time.unix())}:R
       });
 
       // Get current objectives for this guild and update the display
-      const objectives = await findObjectiveByGuildId(guildId);
-      const currentObjectives = objectives.filter(
-        (objective) => objective.time.getTime() > Date.now(),
-      );
+      const currentObjectives = await getActiveObjectives(guildId);
 
       if (currentObjectives.length > 0 && channel) {
         await deletePreviousMessage(this.container.client, channel.id);

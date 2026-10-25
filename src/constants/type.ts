@@ -4,7 +4,6 @@ export const TYPE_NODE_ORE = 'Ore node';
 export const TYPE_NODE_WOOD = 'Wood node';
 export const TYPE_CORE = 'Core';
 export const TYPE_VORTEX = 'Vortex';
-export const TYPE_ANCIENT_LANDS_PORTAL = 'Ancient Lands Portal';
 export const TYPE_DRAGON = 'Dragon';
 
 export const TYPES = [
@@ -14,6 +13,5 @@ export const TYPES = [
   TYPE_NODE_WOOD,
   TYPE_CORE,
   TYPE_VORTEX,
-  TYPE_ANCIENT_LANDS_PORTAL,
   TYPE_DRAGON,
 ];

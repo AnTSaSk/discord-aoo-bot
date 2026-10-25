@@ -1,9 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ChannelType } from 'discord.js';
+import {
+  ChannelType,
+  ComponentType,
+  MessageFlags,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  TextDisplayBuilder,
+} from 'discord.js';
 import type { SapphireClient } from '@sapphire/framework';
 
 import { broadcastAnnouncement, getAnnounceableVersion } from '@/tasks/announcement.js';
-import { ANNOUNCEMENTS } from '@/constants/announcements.js';
+import {
+  ANNOUNCEMENTS,
+  ANNOUNCEMENT_FALLBACK_NOTICE,
+  type Announcement,
+} from '@/constants/announcements.js';
+import {
+  ANNOUNCEMENT_BATCH_DELAY_MS,
+  ANNOUNCEMENT_BATCH_SIZE,
+  DISCORD_MESSAGE_MAX_COMPONENTS,
+  DISCORD_MESSAGE_MAX_TEXT_LENGTH,
+} from '@/constants/config.js';
+import type * as AnnouncementDelivery from '@/utils/announcementDelivery.js';
 
 const {
   getGuildSettingsMock,
@@ -11,12 +29,26 @@ const {
   canBotWriteToChannelMock,
   findAllObjectiveMock,
   findGuildsAlreadyAnnouncedMock,
+  loggerMock,
+  runningVersionState,
 } = vi.hoisted(() => ({
   getGuildSettingsMock: vi.fn(),
   updateGuildSettingsMock: vi.fn().mockResolvedValue(undefined),
   canBotWriteToChannelMock: vi.fn(),
   findAllObjectiveMock: vi.fn().mockResolvedValue([]),
   findGuildsAlreadyAnnouncedMock: vi.fn().mockResolvedValue([]),
+  loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  runningVersionState: { value: undefined as string | undefined },
+}));
+
+vi.mock('@/config/logger.js', () => ({
+  getLogger: () => loggerMock,
+}));
+
+vi.mock('@/config/version.js', () => ({
+  get runningVersion(): string | undefined {
+    return runningVersionState.value;
+  },
 }));
 
 vi.mock('@/services/guildSettings.service.js', () => ({
@@ -33,6 +65,16 @@ vi.mock('@/utils/permissions.js', () => ({
   canBotWriteToChannel: canBotWriteToChannelMock,
 }));
 
+vi.mock('@/utils/announcementDelivery.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof AnnouncementDelivery>();
+
+  return {
+    ...actual,
+    resolveAnnouncementChannelId: vi.fn(actual.resolveAnnouncementChannelId),
+    forEachInBatches: vi.fn(actual.forEachInBatches),
+  };
+});
+
 const DEFAULTS = {
   guildId: 'guild-1',
   announcementChannelId: null,
@@ -40,6 +82,7 @@ const DEFAULTS = {
   announcementsEnabled: true,
   mentionEveryone: false,
   lastAnnouncedVersion: null,
+  removedAt: null,
 };
 
 interface SentPayload {
@@ -85,6 +128,110 @@ const buildClient = (guilds: unknown[]): SapphireClient =>
     guilds: { cache: new Map(guilds.map((g) => [(g as { id: string }).id, g])) },
   }) as unknown as SapphireClient;
 
+beforeEach(() => {
+  runningVersionState.value = getAnnounceableVersion()?.version;
+});
+
+const announceableVersion = (): string => {
+  const announcement = getAnnounceableVersion();
+
+  if (!announcement) {
+    throw new Error('expected an announceable version to exist');
+  }
+
+  return announcement.version;
+};
+
+const serializedCalls = (mock: ReturnType<typeof vi.fn>): string[] =>
+  mock.mock.calls.map((args) => JSON.stringify(args));
+
+describe('broadcastAnnouncement version guard (AC-ANN-1, AC-ANN-2, AC-ANN-4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    canBotWriteToChannelMock.mockReturnValue({ allowed: true, missing: null });
+    findAllObjectiveMock.mockResolvedValue(
+      [{ guildId: 'guild-1', channelId: 'channel-1', time: new Date('2026-09-01T18:00:00Z') }],
+    );
+    findGuildsAlreadyAnnouncedMock.mockResolvedValue([]);
+    getGuildSettingsMock.mockImplementation((guildId: string) =>
+      Promise.resolve({ ...DEFAULTS, guildId }),
+    );
+  });
+
+  it('AC-ANN-1 broadcasts to eligible guilds when the versions are equal', async () => {
+    const eligible = buildGuild('guild-1');
+    const alreadyAnnounced = buildGuild('guild-2');
+
+    findGuildsAlreadyAnnouncedMock.mockResolvedValue(['guild-2']);
+
+    await broadcastAnnouncement(buildClient([eligible.guild, alreadyAnnounced.guild]));
+
+    expect(eligible.send).toHaveBeenCalledTimes(1);
+    expect(alreadyAnnounced.send).not.toHaveBeenCalled();
+    expect(updateGuildSettingsMock).toHaveBeenCalledWith('guild-1', {
+      lastAnnouncedVersion: getAnnounceableVersion()?.version,
+    });
+  });
+
+  it('AC-ANN-2 sends and writes nothing, and warns with both versions, when they diverge', async () => {
+    const { guild, send } = buildGuild('guild-1');
+    const announceable = announceableVersion();
+
+    runningVersionState.value = '9.9.9';
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(updateGuildSettingsMock).not.toHaveBeenCalled();
+    expect(
+      serializedCalls(loggerMock.warn).some(
+        (call) => call.includes(announceable) && call.includes('9.9.9'),
+      ),
+    ).toBe(true);
+  });
+
+  it.each<[string, (announceable: string) => string]>([
+    ['a lower running version', () => '0.0.1'],
+    ['a higher running version', () => '99.0.0'],
+    ['a running version extending the announceable one', (v) => `${v}.1`],
+    ['a running version prefixed with v', (v) => `v${v}`],
+    ['a running version with a pre-release tag', (v) => `${v}-beta.1`],
+    ['a running version numerically equal but written differently', (v) => `${v}.0`],
+    ['a running version surrounded by whitespace', (v) => ` ${v} `],
+  ])('AC-ANN-2 stays silent on strict inequality: %s', async (_label, derive) => {
+    const { guild, send } = buildGuild('guild-1');
+    const announceable = announceableVersion();
+
+    runningVersionState.value = derive(announceable);
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    expect(runningVersionState.value).not.toBe(announceable);
+    expect(send).not.toHaveBeenCalled();
+    expect(updateGuildSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it('AC-ANN-2 resolves without rejecting when the versions diverge', async () => {
+    const { guild } = buildGuild('guild-1');
+
+    runningVersionState.value = '9.9.9';
+
+    await expect(broadcastAnnouncement(buildClient([guild]))).resolves.toBeUndefined();
+  });
+
+  it('AC-ANN-4 sends and writes nothing, logs an error, and resolves when the running version is unavailable', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    runningVersionState.value = undefined;
+
+    await expect(broadcastAnnouncement(buildClient([guild]))).resolves.toBeUndefined();
+
+    expect(send).not.toHaveBeenCalled();
+    expect(updateGuildSettingsMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('getAnnounceableVersion (AC-10)', () => {
   it('returns the highest declared version, whatever the declaration order', () => {
     const declared = ANNOUNCEMENTS.map((a) => a.version);
@@ -102,7 +249,7 @@ describe('broadcastAnnouncement targeting (AC-11, AC-12, AC-13, AC-14)', () => {
     findAllObjectiveMock.mockResolvedValue([]);
   });
 
-  it('sends nothing to a guild that already received this version (AC-11)', async () => {
+  it('sends nothing to a guild that already received this version (AC-11, AC-ANN-6)', async () => {
     const { guild, send } = buildGuild('guild-1');
 
     getGuildSettingsMock.mockResolvedValue({
@@ -422,7 +569,7 @@ describe('broadcastAnnouncement persistence (AC-20, AC-21)', () => {
     });
   });
 
-  it('stores nothing when the send fails (AC-21)', async () => {
+  it('stores nothing when the send fails (AC-21, AC-ANN-7)', async () => {
     const { guild, send } = buildGuild('guild-1');
 
     send.mockRejectedValue(new Error('discord down'));
@@ -550,7 +697,7 @@ describe('broadcastAnnouncement pre-filtering (AC-11, load)', () => {
     );
   });
 
-  it('reads no per-guild settings when every guild already received the version (AC-11)', async () => {
+  it('reads no per-guild settings when every guild already received the version (AC-11, AC-ANN-6)', async () => {
     const first = buildGuild('guild-1');
     const second = buildGuild('guild-2');
 
@@ -563,7 +710,7 @@ describe('broadcastAnnouncement pre-filtering (AC-11, load)', () => {
     expect(second.send).not.toHaveBeenCalled();
   });
 
-  it('reads settings only for the guilds that still need the announcement (AC-11)', async () => {
+  it('reads settings only for the guilds that still need the announcement (AC-11, AC-ANN-6)', async () => {
     const first = buildGuild('guild-1');
     const second = buildGuild('guild-2');
 
@@ -585,5 +732,234 @@ describe('broadcastAnnouncement pre-filtering (AC-11, load)', () => {
     await broadcastAnnouncement(buildClient([guild]));
 
     expect(send).toHaveBeenCalled();
+  });
+});
+
+const textJson = (content: string): unknown => new TextDisplayBuilder().setContent(content).toJSON();
+
+const separatorJson = (): unknown => new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).toJSON();
+
+const asJson = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+
+const expectedRelease = (announcement: Announcement, fallback: boolean): unknown => asJson([
+  textJson(announcement.title),
+  ...announcement.sections.flatMap((section: string, index: number) =>
+    (index === 0 ? [textJson(section)] : [separatorJson(), textJson(section)])),
+  separatorJson(),
+  textJson(`-# ${announcement.footer}`),
+  ...(fallback ? [textJson(`-# ${ANNOUNCEMENT_FALLBACK_NOTICE}`)] : []),
+]);
+
+const jsonComponentsOf = (value: unknown): { content?: string }[] =>
+  JSON.parse(JSON.stringify(value)) as { content?: string }[];
+
+const textLengthOf = (components: { content?: string }[]): number =>
+  components.flatMap((component) => (component.content === undefined ? [] : [component.content])).join('').length;
+
+const announceable = (): Announcement => {
+  const announcement = getAnnounceableVersion();
+
+  if (!announcement) {
+    throw new Error('expected an announceable version to exist');
+  }
+
+  return announcement;
+};
+
+describe('broadcastAnnouncement release output characterization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findAllObjectiveMock.mockResolvedValue([]);
+    canBotWriteToChannelMock.mockReturnValue({ allowed: true, missing: null, canMentionEveryone: true });
+  });
+
+  it('renders title, sections separated by Large separators, then a separator and the small footer in a configured channel', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    getGuildSettingsMock.mockResolvedValue({ ...DEFAULTS, announcementChannelId: 'channel-1' });
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    const payload = send.mock.calls[0]?.[0] as SentPayload;
+
+    expect(asJson(payload.components)).toEqual(expectedRelease(announceable(), false));
+  });
+
+  it('appends the small fallback notice after the footer in the last used channel', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    getGuildSettingsMock.mockResolvedValue({ ...DEFAULTS, lastUsedChannelId: 'channel-1' });
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    const payload = send.mock.calls[0]?.[0] as SentPayload;
+
+    expect(asJson(payload.components)).toEqual(expectedRelease(announceable(), true));
+  });
+
+  it('sends only the components and the Components V2 flag when the mention is off', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    getGuildSettingsMock.mockResolvedValue({ ...DEFAULTS, lastUsedChannelId: 'channel-1' });
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    expect(send.mock.calls[0]?.[0]).toStrictEqual({
+      components: expect.any(Array) as unknown,
+      flags: MessageFlags.IsComponentsV2,
+    });
+  });
+
+  it('adds exactly the everyone parse rule to the Components V2 flag when the mention is on', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    getGuildSettingsMock.mockResolvedValue({
+      ...DEFAULTS,
+      lastUsedChannelId: 'channel-1',
+      mentionEveryone: true,
+    });
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    expect(send.mock.calls[0]?.[0]).toStrictEqual({
+      components: expect.any(Array) as unknown,
+      flags: MessageFlags.IsComponentsV2,
+      allowedMentions: { parse: ['everyone'] },
+    });
+  });
+
+  it.each(ANNOUNCEMENTS.map((announcement: Announcement): [string, Announcement] => [announcement.version, announcement]))(
+    'AC-ANN-8 fits release %s with its fallback notice and the everyone block in one message through the shared builder, unchanged',
+    async (_version, announcement) => {
+      const { buildSectionedMessage } = await import('@/utils/componentsV2.js');
+      const { withEveryoneMention } = await import('@/utils/announcementDelivery.js');
+
+      const components = buildSectionedMessage(
+        announcement.title,
+        announcement.sections,
+        [`-# ${announcement.footer}`, `-# ${ANNOUNCEMENT_FALLBACK_NOTICE}`],
+      );
+      const withBlock = jsonComponentsOf(withEveryoneMention(components));
+
+      expect(asJson(components)).toEqual(expectedRelease(announcement, true));
+      expect(withBlock).toHaveLength(components.length + 1);
+      expect(withBlock.length).toBeLessThanOrEqual(DISCORD_MESSAGE_MAX_COMPONENTS);
+      expect(textLengthOf(withBlock)).toBeLessThanOrEqual(DISCORD_MESSAGE_MAX_TEXT_LENGTH);
+    },
+  );
+});
+
+describe('broadcastAnnouncement shared delivery helpers (P7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findAllObjectiveMock.mockResolvedValue([]);
+    canBotWriteToChannelMock.mockReturnValue({ allowed: true, missing: null });
+    getGuildSettingsMock.mockImplementation((guildId: string) =>
+      Promise.resolve(guildId === 'guild-a' ?
+        { ...DEFAULTS, guildId, announcementChannelId: 'channel-1' } :
+        { ...DEFAULTS, guildId, lastUsedChannelId: 'channel-1' }));
+  });
+
+  it('P7 resolves each channel and paces the sends through the shared delivery module', async () => {
+    const delivery = await import('@/utils/announcementDelivery.js');
+    const configured = buildGuild('guild-a');
+    const fallback = buildGuild('guild-b');
+
+    await broadcastAnnouncement(buildClient([configured.guild, fallback.guild]));
+
+    const resolveSpy = vi.mocked(delivery.resolveAnnouncementChannelId);
+    const batchSpy = vi.mocked(delivery.forEachInBatches);
+
+    expect(resolveSpy.mock.calls.map(([settings]) => settings.guildId)).toEqual(['guild-a', 'guild-b']);
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    expect(batchSpy.mock.calls[0]?.[0]).toHaveLength(2);
+    expect(batchSpy.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      size: ANNOUNCEMENT_BATCH_SIZE,
+      delayMs: ANNOUNCEMENT_BATCH_DELAY_MS,
+    }));
+    expect(configured.send).toHaveBeenCalledTimes(1);
+    expect(fallback.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('broadcastAnnouncement everyone block (AC-ANN-8)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findAllObjectiveMock.mockResolvedValue([]);
+    getGuildSettingsMock.mockResolvedValue({
+      ...DEFAULTS,
+      lastUsedChannelId: 'channel-1',
+      mentionEveryone: true,
+    });
+  });
+
+  it('AC-ANN-8 places the everyone block first, above the release, and allows the mention when the guild opted in and the bot holds the permission', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    canBotWriteToChannelMock.mockReturnValue({ allowed: true, missing: null, canMentionEveryone: true });
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    const payload = send.mock.calls[0]?.[0] as SentPayload;
+
+    expect(asJson(payload.components[0])).toEqual({ type: ComponentType.TextDisplay, content: '@everyone' });
+    expect(asJson(payload.components.slice(1))).toEqual(expectedRelease(announceable(), true));
+    expect(payload.allowedMentions).toEqual({ parse: ['everyone'] });
+  });
+
+  it('AC-ANN-8 sends the release without the everyone block when the permission is missing', async () => {
+    const { guild, send } = buildGuild('guild-1');
+
+    canBotWriteToChannelMock.mockReturnValue({ allowed: true, missing: null, canMentionEveryone: false });
+
+    await broadcastAnnouncement(buildClient([guild]));
+
+    const payload = send.mock.calls[0]?.[0] as SentPayload;
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(asJson(payload.components)).toEqual(expectedRelease(announceable(), true));
+  });
+});
+
+describe('broadcastAnnouncement per-guild build failure (AC-ANN-8, AC-21)', () => {
+  let release: Announcement;
+  let originalSections: string[];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findAllObjectiveMock.mockResolvedValue([]);
+    canBotWriteToChannelMock.mockReturnValue({ allowed: true, missing: null, canMentionEveryone: true });
+    getGuildSettingsMock.mockImplementation((guildId: string) =>
+      Promise.resolve({
+        ...DEFAULTS,
+        guildId,
+        announcementChannelId: 'channel-1',
+        mentionEveryone: guildId === 'guild-a',
+      }));
+    release = announceable();
+    originalSections = release.sections;
+    const overflowWithBlock = DISCORD_MESSAGE_MAX_TEXT_LENGTH - '@everyone'.length + 1;
+
+    release.sections = ['a'.repeat(overflowWithBlock - release.title.length - `-# ${release.footer}`.length)];
+  });
+
+  afterEach(() => {
+    release.sections = originalSections;
+  });
+
+  it('AC-ANN-8 fails only the opted-in guild whose release overflows with the everyone block, logs it, still sends the other guild and logs the summary', async () => {
+    const optedIn = buildGuild('guild-a');
+    const plain = buildGuild('guild-b');
+
+    await expect(broadcastAnnouncement(buildClient([optedIn.guild, plain.guild]))).resolves.toBeUndefined();
+
+    expect(optedIn.send).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledWith(expect.objectContaining({ guildId: 'guild-a' }), expect.any(String));
+    expect(plain.send).toHaveBeenCalledTimes(1);
+    expect(updateGuildSettingsMock.mock.calls.map(([guildId]: unknown[]) => guildId)).toEqual(['guild-b']);
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      expect.objectContaining({ version: release.version }),
+      'Release announcement broadcast completed',
+    );
   });
 });
