@@ -36,5 +36,6 @@ ecosystem.config.cjs
 CLAUDE.md
 .claude/
 INTERVIEW.md
+INTERVIEW.*.md
 STATE.md
 .factory/

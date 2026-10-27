@@ -1,6 +1,6 @@
 {
   "name": "discord-bot-aoo",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "author": "Alexis Besson me@alexis-besson.dev <https://alexis-besson.dev/>",
   "license": "GPL-3.0-or-later",
   "description": "Discord bot specially created for Albion Online game, it allows player to add/list/remove objectives (nodes, cores and vortexes) with all the necessary informations like the type of objective, it's rarity, the map and the time remaining before objective unlock",

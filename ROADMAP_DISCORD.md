@@ -1,6 +1,6 @@
 # Roadmap
 
-**Current version: 0.3.7** — everything up to it is live, the rest is planned. <!-- x-release-please-version -->
+**Current version: 0.3.8** — everything up to it is live, the rest is planned. <!-- x-release-please-version -->
 
 ## v0.1.0
 
