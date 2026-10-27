@@ -1,8 +1,37 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { GatewayIntentBits, type LimitedCollection } from 'discord.js';
 
 import { getClientOptions } from '@/config/clientOptions.js';
 import { SWEEP_INTERVAL_SECONDS } from '@/constants/config.js';
+
+const { botLoggerStub } = vi.hoisted(() => ({
+  botLoggerStub: {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    isLevelEnabled: vi.fn(),
+  },
+}));
+
+vi.mock('@/config/logger.js', () => ({
+  getLogger: () => botLoggerStub,
+}));
+
+describe('getClientOptions framework logger (logging AC-LOG-11)', () => {
+  it('logging AC-LOG-11 passes the framework a FrameworkLogger that writes through the bot logger', async () => {
+    const { FrameworkLogger } = await import('@/config/frameworkLogger.js');
+    const instance = getClientOptions().logger?.instance;
+
+    expect(instance).toBeInstanceOf(FrameworkLogger);
+
+    instance?.info('framework line');
+
+    expect(botLoggerStub.info).toHaveBeenCalledWith('framework line');
+  });
+});
 
 // client-runtime.md § Options client
 describe('getClientOptions', () => {

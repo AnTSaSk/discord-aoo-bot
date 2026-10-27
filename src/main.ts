@@ -34,7 +34,7 @@ const main = async (): Promise<void> => {
       await db.authenticate();
       logger.info('Connection has been established successfully');
     } catch (error) {
-      logger.error(`Unable to connect to the database: ${String(error)}`);
+      logger.error({ error }, 'Unable to connect to the database');
       process.exit(1);
     }
 

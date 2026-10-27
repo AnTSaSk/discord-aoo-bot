@@ -1,5 +1,6 @@
 import { type Logger, pino } from 'pino';
 import { getSecret } from '../utils/secrets.js';
+import { errorSerializers } from './logSerializers.js';
 
 let logger: Logger | undefined;
 
@@ -15,6 +16,7 @@ export const getLogger = (): Logger => {
       // Production with Logtail: send to both Logtail AND stdout
       logger = pino({
         level: logLevel,
+        serializers: errorSerializers,
         transport: {
           targets: [
             {
@@ -37,11 +39,12 @@ export const getLogger = (): Logger => {
       });
     } else if (isProduction) {
       // Production without Logtail: plain JSON to stdout
-      logger = pino({ level: logLevel });
+      logger = pino({ level: logLevel, serializers: errorSerializers });
     } else {
       // Development: use pino-pretty for readable logs
       logger = pino({
         level: logLevel,
+        serializers: errorSerializers,
         transport: {
           target: 'pino-pretty',
           options: {

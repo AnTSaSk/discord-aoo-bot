@@ -182,6 +182,32 @@ const bestPracticesRules = {
   'no-restricted-globals': ['error', 'event', 'fdescribe'],
 };
 
+const restrictFolders = (folders, options = {}) => ({
+  group: folders.flatMap(folder => [`@/${folder}/*`, `../${folder}/*`]),
+  message: 'Import against the folder direction (docs/architecture/project-structure.md).',
+  ...options,
+});
+
+const importDirectionConfigs = [
+  [['services'], [restrictFolders(['tasks', 'commands', 'listeners', 'announcer'])]],
+  [['models'], [restrictFolders(['tasks', 'commands', 'listeners', 'services', 'utils', 'announcer'])]],
+  [
+    ['utils'], [
+      restrictFolders(['tasks', 'commands', 'listeners', 'announcer']),
+      restrictFolders(['models', 'services'], { allowTypeImports: true }),
+    ],
+  ],
+  [['constants'], [restrictFolders(['tasks', 'commands', 'listeners', 'services', 'models', 'utils', 'config', 'announcer'])]],
+  [['config'], [restrictFolders(['tasks', 'commands', 'listeners', 'services', 'models'])]],
+  [['tasks'], [restrictFolders(['commands', 'listeners'])]],
+].map(([folders, patterns]) => ({
+  files: folders.map(folder => `src/${folder}/**/*.ts`),
+  ignores: ['**/*.test.ts', '**/*.spec.ts'],
+  rules: {
+    '@typescript-eslint/no-restricted-imports': ['error', { patterns }],
+  },
+}));
+
 export default tseslint.config(
   // Base JS recommended
   js.configs.recommended,
@@ -225,6 +251,8 @@ export default tseslint.config(
       ...bestPracticesRules,
     },
   },
+
+  ...importDirectionConfigs,
 
   // Relaxed rules for test files
   {

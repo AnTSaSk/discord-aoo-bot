@@ -192,7 +192,7 @@ const resolveAuthorName = async (
       return member.displayName;
     } catch (error) {
       if (!isUnknownMember(error)) {
-        logger.warn({ error, guildId, userId }, 'Failed to resolve guild member');
+        logger.warn({ error, guildId }, 'Failed to resolve guild member');
       }
     }
   }

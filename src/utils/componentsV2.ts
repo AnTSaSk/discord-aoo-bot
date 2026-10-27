@@ -1,11 +1,17 @@
 import {
+  ContainerBuilder,
+  type ContainerComponentBuilder,
   MessageFlags,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
 } from 'discord.js';
 
-import { DISCORD_MESSAGE_MAX_COMPONENTS, DISCORD_MESSAGE_MAX_TEXT_LENGTH } from '@/constants/config.js';
+import {
+  DISCORD_MESSAGE_MAX_COMPONENTS,
+  DISCORD_MESSAGE_MAX_TEXT_LENGTH,
+  MAX_COMPONENTS_PER_MESSAGE,
+} from '@/constants/config.js';
 
 export class MessageSizeError extends Error {
   public readonly limit: 'text' | 'components';
@@ -76,6 +82,57 @@ export const buildSectionedMessage = (
     [];
 
   return [new TextDisplayBuilder().setContent(title), ...body, ...footer];
+};
+
+export type ComponentsV2Block = ContainerBuilder | TextDisplayBuilder | SeparatorBuilder;
+
+// Reads the builder data directly: toJSON() would reject a single text over 4000 characters
+const measureComponent = (component: ContainerBuilder | ContainerComponentBuilder): MessageSize => {
+  if (component instanceof ContainerBuilder) {
+    return component.components.reduce<MessageSize>(
+      (total, child) => {
+        const size = measureComponent(child);
+
+        return {
+          textLength: total.textLength + size.textLength,
+          componentCount: total.componentCount + size.componentCount,
+        };
+      },
+      { textLength: 0, componentCount: 1 },
+    );
+  }
+
+  if (component instanceof TextDisplayBuilder) {
+    const { content } = component.data;
+
+    if (content === undefined) {
+      throw new Error('Text display has no content to measure');
+    }
+
+    return { textLength: content.length, componentCount: 1 };
+  }
+
+  if (component instanceof SeparatorBuilder) {
+    return { textLength: 0, componentCount: 1 };
+  }
+
+  throw new Error(`Cannot measure a ${component.constructor.name} in a Components V2 message`);
+};
+
+export const fitsComponentsV2Message = (components: readonly ComponentsV2Block[]): boolean => {
+  const { textLength, componentCount } = components.reduce<MessageSize>(
+    (total, component) => {
+      const size = measureComponent(component);
+
+      return {
+        textLength: total.textLength + size.textLength,
+        componentCount: total.componentCount + size.componentCount,
+      };
+    },
+    { textLength: 0, componentCount: 0 },
+  );
+
+  return textLength <= DISCORD_MESSAGE_MAX_TEXT_LENGTH && componentCount <= MAX_COMPONENTS_PER_MESSAGE;
 };
 
 export const componentsV2Options = (

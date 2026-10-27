@@ -4,7 +4,7 @@ export const CRON_SCHEDULE = '*/30 * * * *';
 // Discord message fetch limit for bot cleanup
 export const MESSAGE_FETCH_LIMIT = 50;
 
-// Discord max top-level components per message (actual limit: 40, safety margin: 38)
+// Discord max components per message, nested ones included (actual limit: 40, safety margin: 38)
 export const MAX_COMPONENTS_PER_MESSAGE = 38;
 
 // Duplicate detection time window (minutes before and after)

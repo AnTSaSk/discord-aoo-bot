@@ -4,10 +4,22 @@ import type { Command } from '@sapphire/framework';
 import { ListObjectivesCommand } from '@/commands/listObjectives.js';
 import type { Objective } from '@/models/objective.model.js';
 
-const { getActiveObjectivesMock, getMessageMock, recordLastUsedChannelMock } = vi.hoisted(() => ({
+const { getActiveObjectivesMock, getMessageMock, recordLastUsedChannelMock, loggerMock } = vi.hoisted(() => ({
   getActiveObjectivesMock: vi.fn(),
   getMessageMock: vi.fn().mockResolvedValue([]),
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
+  loggerMock: {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+  },
+}));
+
+vi.mock('@/config/logger.js', () => ({
+  getLogger: () => loggerMock,
 }));
 
 vi.mock('@/services/objective.service.js', () => ({
@@ -89,6 +101,38 @@ describe('ListObjectivesCommand last used channel (guild-settings AC-9)', () => 
     await createCommand().command.chatInputRun(interaction);
 
     expect(recordLastUsedChannelMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ListObjectivesCommand log lines (logging AC-LOG-1, AC-LOG-2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('logging AC-LOG-2 logs exactly guildId and objectivesCount when objectives are listed', async () => {
+    getActiveObjectivesMock.mockResolvedValue([{ id: 7 }, { id: 8 }]);
+
+    const { interaction } = buildInteraction();
+
+    await createCommand().command.chatInputRun(interaction);
+
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      { guildId: 'guild-1', objectivesCount: 2 },
+      'List command executed successfully',
+    );
+  });
+
+  it('logging AC-LOG-2 logs exactly guildId when there is no objective', async () => {
+    getActiveObjectivesMock.mockResolvedValue([]);
+
+    const { interaction } = buildInteraction();
+
+    await createCommand().command.chatInputRun(interaction);
+
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      { guildId: 'guild-1' },
+      'List command executed - no objectives',
+    );
   });
 });
 

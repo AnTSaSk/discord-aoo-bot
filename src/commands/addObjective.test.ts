@@ -25,12 +25,25 @@ const {
   findAllObjectiveMock,
   getActiveObjectivesMock,
   getMessageMock,
+  loggerMock,
 } = vi.hoisted(() => ({
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
   createObjectiveMock: vi.fn(),
   findAllObjectiveMock: vi.fn().mockResolvedValue([]),
   getActiveObjectivesMock: vi.fn().mockResolvedValue([]),
   getMessageMock: vi.fn().mockResolvedValue([]),
+  loggerMock: {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+  },
+}));
+
+vi.mock('@/config/logger.js', () => ({
+  getLogger: () => loggerMock,
 }));
 
 vi.mock('@/services/guildSettings.service.js', () => ({
@@ -205,6 +218,47 @@ describe('AddObjectiveCommand type/rarity combination validation', () => {
     expect(reply.mock.calls[0]?.[0]?.content).not.toBe(
       'This rarity is not valid for the selected type',
     );
+  });
+});
+
+describe('AddObjectiveCommand missing values log line (logging AC-LOG-1, AC-LOG-2)', () => {
+  it('logging AC-LOG-2 logs exactly the command, location and option keys, without the user id', async () => {
+    loggerMock.error.mockClear();
+
+    const command = Object.create(AddObjectiveCommand.prototype) as AddObjectiveCommand;
+    const { interaction } = buildChatInputInteraction({
+      type: TYPE_CORE,
+      rarity: RARITY_LEGENDARY,
+      map: null,
+      time: '1:30',
+    });
+
+    await command.chatInputRun(interaction);
+
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      {
+        command: 'addObjective',
+        guildId: 'guild-1',
+        channelId: 'channel-1',
+        type: TYPE_CORE,
+        rarity: RARITY_LEGENDARY,
+        map: undefined,
+        time: '1:30',
+      },
+      'Command missing required values',
+    );
+
+    const loggedObject = loggerMock.error.mock.calls[0][0] as Record<string, unknown>;
+
+    expect(Object.keys(loggedObject).sort()).toStrictEqual([
+      'channelId',
+      'command',
+      'guildId',
+      'map',
+      'rarity',
+      'time',
+      'type',
+    ]);
   });
 });
 

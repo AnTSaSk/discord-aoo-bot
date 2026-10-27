@@ -15,7 +15,6 @@ export class CommandErrorListener extends Listener {
       {
         command: payload.command.name,
         guildId: payload.interaction.guildId,
-        userId: payload.interaction.user.id,
         error,
       },
       'Command execution error',

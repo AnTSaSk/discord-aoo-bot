@@ -4,6 +4,7 @@ import { Op, UniqueConstraintError } from '@sequelize/core';
 import { TYPES } from '@/constants/type.js';
 import { getObjectiveModel, type Objective } from '@/models/objective.model.js';
 import {
+  createObjective,
   deleteObjective,
   deleteObjectivesByGuildId,
   getActiveObjectives,
@@ -12,12 +13,28 @@ import {
 
 const objectiveModelStub = {
   findAll: vi.fn(),
+  create: vi.fn(),
   update: vi.fn(),
   destroy: vi.fn(),
 };
 
 vi.mock('@/models/objective.model.js', () => ({
   getObjectiveModel: () => objectiveModelStub,
+}));
+
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+  },
+}));
+
+vi.mock('@/config/logger.js', () => ({
+  getLogger: () => loggerMock,
 }));
 
 const buildObjective = (
@@ -176,6 +193,51 @@ describe('updateObjective', () => {
     const values = vi.mocked(getObjectiveModel().update).mock.calls[0]?.[0] as Record<string, unknown>;
 
     expect(values).not.toHaveProperty('maintenanceAdded');
+  });
+});
+
+describe('createObjective log lines (logging AC-LOG-1, AC-LOG-2)', () => {
+  const creationData = {
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    userId: 'user-1',
+    type: 'Core',
+    rarity: 'Legendary',
+    map: 'Thetford',
+    time: new Date('2026-09-01T12:00:00Z'),
+    maintenanceAdded: false,
+  };
+
+  const loggedKeys = {
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    type: 'Core',
+    rarity: 'Legendary',
+    map: 'Thetford',
+    time: new Date('2026-09-01T12:00:00Z'),
+    maintenanceAdded: false,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('logging AC-LOG-2 logs exactly the inventory keys of a duplicate rejected by the DB constraint', async () => {
+    vi.mocked(getObjectiveModel().create).mockRejectedValue(new UniqueConstraintError({ errors: [] }));
+
+    await expect(createObjective(creationData)).resolves.toBeNull();
+
+    expect(loggerMock.info).toHaveBeenCalledWith(loggedKeys, 'Duplicate objective rejected by DB constraint');
+  });
+
+  it('logging AC-LOG-2 logs exactly the error and the inventory keys when the creation fails', async () => {
+    const failure = new Error('connection lost');
+
+    vi.mocked(getObjectiveModel().create).mockRejectedValue(failure);
+
+    await expect(createObjective(creationData)).rejects.toThrow('connection lost');
+
+    expect(loggerMock.error).toHaveBeenCalledWith({ error: failure, ...loggedKeys }, 'Failed to create objective');
   });
 });
 

@@ -170,7 +170,6 @@ export class AddObjectiveCommand extends Command {
           command: 'addObjective',
           guildId: guildId ?? undefined,
           channelId,
-          userId,
           type: objectiveType ?? undefined,
           rarity: objectiveRarity ?? undefined,
           map: objectiveMap ?? undefined,

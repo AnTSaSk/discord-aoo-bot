@@ -116,13 +116,23 @@ export const createObjective = async (
 
     return objective;
   } catch (error) {
+    const loggedKeys = {
+      guildId: data.guildId,
+      channelId: data.channelId,
+      type: data.type,
+      rarity: data.rarity,
+      map: data.map,
+      time: data.time,
+      maintenanceAdded: data.maintenanceAdded,
+    };
+
     if (error instanceof UniqueConstraintError) {
-      logger.info({ data }, 'Duplicate objective rejected by DB constraint');
+      logger.info(loggedKeys, 'Duplicate objective rejected by DB constraint');
 
       return null;
     }
 
-    logger.error({ error, data }, 'Failed to create objective');
+    logger.error({ error, ...loggedKeys }, 'Failed to create objective');
 
     throw error;
   }

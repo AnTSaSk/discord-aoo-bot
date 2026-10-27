@@ -88,7 +88,6 @@ export class ListObjectivesCommand extends Command {
           logger.info(
             {
               guildId,
-              userId: interaction.user.id,
               objectivesCount: currentObjectives.length,
             },
             'List command executed successfully',
@@ -103,7 +102,6 @@ export class ListObjectivesCommand extends Command {
           logger.info(
             {
               guildId,
-              userId: interaction.user.id,
             },
             'List command executed - no objectives',
           );

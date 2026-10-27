@@ -247,6 +247,15 @@ describe('getMessage — resilience', () => {
     );
   });
 
+  it('logging AC-LOG-1 / AC-LOG-2 logs exactly the error and guildId when resolution fails, without the user id', async () => {
+    const failure = serverError();
+    const { client } = buildClient({ memberFetchRejectsWith: failure });
+
+    await getMessage(client, 'objective', [buildObjective({ userId: 'user-1', guildId: 'guild-42' })]);
+
+    expect(warnMock).toHaveBeenCalledWith({ error: failure, guildId: 'guild-42' }, 'Failed to resolve guild member');
+  });
+
   it('does not log a warning when the author simply left the server (AC-8b)', async () => {
     const { client } = buildClient({
       members: {},

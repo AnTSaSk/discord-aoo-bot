@@ -12,11 +12,24 @@ const {
   deleteObjectiveMock,
   canModifyObjectiveMock,
   recordLastUsedChannelMock,
+  loggerMock,
 } = vi.hoisted(() => ({
   getActiveObjectivesMock: vi.fn(),
   deleteObjectiveMock: vi.fn(),
   canModifyObjectiveMock: vi.fn(),
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
+  loggerMock: {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+  },
+}));
+
+vi.mock('@/config/logger.js', () => ({
+  getLogger: () => loggerMock,
 }));
 
 vi.mock('@/services/guildSettings.service.js', () => ({
@@ -211,6 +224,39 @@ describe('RemoveObjectiveCommand — index resolution against the active list', 
       expect(deleteObjectiveMock).not.toHaveBeenCalled();
     });
   });
+});
+
+describe('RemoveObjectiveCommand removal log line (logging AC-LOG-1, AC-LOG-2, AC-LOG-3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    canModifyObjectiveMock.mockReturnValue(true);
+    deleteObjectiveMock.mockResolvedValue(1);
+  });
+
+  it.each([
+    ['the author', 'owner-1', true],
+    ['another requester', 'moderator-1', false],
+  ])(
+    'logging AC-LOG-2 / AC-LOG-3 logs exactly the removal keys with removedByOwner computed for %s',
+    async (_label, requesterId, removedByOwner) => {
+      getActiveObjectivesMock.mockResolvedValue([buildObjective({ id: 5, userId: 'owner-1' })]);
+
+      const { interaction } = buildInteraction('1', { userId: requesterId });
+
+      await createCommand().chatInputRun(interaction);
+
+      expect(loggerMock.info).toHaveBeenCalledWith(
+        {
+          guildId: 'guild-1',
+          objectiveId: 5,
+          objectiveType: TYPE_CORE,
+          objectiveMap: MAP_ELDERSLEEP,
+          removedByOwner,
+        },
+        'Objective removed successfully',
+      );
+    },
+  );
 });
 
 describe('RemoveObjectiveCommand last used channel (guild-settings AC-9)', () => {

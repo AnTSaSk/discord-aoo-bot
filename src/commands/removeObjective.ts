@@ -179,7 +179,6 @@ export class RemoveObjectiveCommand extends Command {
     logger.info(
       {
         guildId,
-        userId: interaction.user.id,
         objectiveId: objective.id,
         objectiveType: objective.type,
         objectiveMap: objective.map,
