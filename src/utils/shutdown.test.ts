@@ -119,3 +119,68 @@ describe('performShutdown', () => {
     await vi.advanceTimersByTimeAsync(SHUTDOWN_TIMEOUT_MS);
   });
 });
+
+describe('performShutdown with the aggregated board (aggregated-board AC-AGG-34)', () => {
+  const recordingDeps = (calls: string[], overrides: Partial<ShutdownDeps> = {}): ShutdownDeps =>
+    buildDeps({
+      stopHeartbeat: vi.fn(() => {
+        calls.push('stopHeartbeat');
+      }),
+      stopCron: vi.fn(() => {
+        calls.push('stopCron');
+
+        return Promise.resolve();
+      }),
+      destroyClient: vi.fn(() => {
+        calls.push('destroyClient');
+
+        return Promise.resolve();
+      }),
+      closeDb: vi.fn(() => {
+        calls.push('closeDb');
+
+        return Promise.resolve();
+      }),
+      ...overrides,
+    });
+
+  it('aggregated-board AC-AGG-34: stops the aggregated board together with the heartbeat, before the cron', async () => {
+    const calls: string[] = [];
+    const deps = recordingDeps(calls, {
+      stopAggregatedBoard: vi.fn(() => {
+        calls.push('stopAggregatedBoard');
+      }),
+    });
+
+    await performShutdown(deps, 'SIGTERM');
+
+    expect([...calls.slice(0, 2)].sort()).toEqual(['stopAggregatedBoard', 'stopHeartbeat']);
+    expect(calls.slice(2)).toEqual(['stopCron', 'destroyClient', 'closeDb']);
+    expect(deps.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('aggregated-board AC-AGG-34: without the aggregated board dependency, shutdown keeps its order without error', async () => {
+    const calls: string[] = [];
+    const deps = recordingDeps(calls);
+
+    await performShutdown(deps, 'SIGTERM');
+
+    expect(calls).toEqual(['stopHeartbeat', 'stopCron', 'destroyClient', 'closeDb']);
+    expect(deps.logger.error).not.toHaveBeenCalled();
+    expect(deps.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('aggregated-board AC-AGG-34: shutdown does not await a render still running in the aggregated board', async () => {
+    const calls: string[] = [];
+    const deps = recordingDeps(calls, {
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- a never-settling promise handed to the void dependency must not be awaited
+      stopAggregatedBoard: vi.fn(pendingForever),
+    });
+
+    await performShutdown(deps, 'SIGTERM');
+
+    expect(deps.stopAggregatedBoard).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['stopHeartbeat', 'stopCron', 'destroyClient', 'closeDb']);
+    expect(deps.exit).toHaveBeenCalledWith(0);
+  });
+});

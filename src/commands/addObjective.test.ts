@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
-import { type MessageFlags } from 'discord.js';
 import type { Command } from '@sapphire/framework';
 import { Op } from '@sequelize/core';
 
@@ -25,6 +24,7 @@ const {
   findAllObjectiveMock,
   getActiveObjectivesMock,
   getMessageMock,
+  deletePreviousMessageMock,
   loggerMock,
 } = vi.hoisted(() => ({
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
@@ -32,6 +32,7 @@ const {
   findAllObjectiveMock: vi.fn().mockResolvedValue([]),
   getActiveObjectivesMock: vi.fn().mockResolvedValue([]),
   getMessageMock: vi.fn().mockResolvedValue([]),
+  deletePreviousMessageMock: vi.fn().mockResolvedValue(undefined),
   loggerMock: {
     trace: vi.fn(),
     debug: vi.fn(),
@@ -57,7 +58,7 @@ vi.mock('@/services/objective.service.js', () => ({
 }));
 
 vi.mock('@/tasks/message.js', () => ({
-  deletePreviousMessage: vi.fn(),
+  deletePreviousMessage: deletePreviousMessageMock,
   getMessage: getMessageMock,
   sendMessageBatches: vi.fn(),
 }));
@@ -147,7 +148,6 @@ describe('AddObjectiveCommand time option description', () => {
 
 interface FakeReplyPayload {
   content: string;
-  flags: MessageFlags.Ephemeral;
 }
 
 const buildChatInputInteraction = (values: {
@@ -965,3 +965,4 @@ describe('AddObjectiveCommand board source (objective-selection AC-1, AC-3)', ()
     expect(getMessageMock).toHaveBeenCalledWith(client, 'objective', activeObjectives);
   });
 });
+

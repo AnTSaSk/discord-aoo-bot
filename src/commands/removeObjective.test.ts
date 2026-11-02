@@ -12,12 +12,14 @@ const {
   deleteObjectiveMock,
   canModifyObjectiveMock,
   recordLastUsedChannelMock,
+  deletePreviousMessageMock,
   loggerMock,
 } = vi.hoisted(() => ({
   getActiveObjectivesMock: vi.fn(),
   deleteObjectiveMock: vi.fn(),
   canModifyObjectiveMock: vi.fn(),
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
+  deletePreviousMessageMock: vi.fn().mockResolvedValue(undefined),
   loggerMock: {
     trace: vi.fn(),
     debug: vi.fn(),
@@ -46,7 +48,7 @@ vi.mock('@/utils/permissions.js', () => ({
 }));
 
 vi.mock('@/tasks/message.js', () => ({
-  deletePreviousMessage: vi.fn().mockResolvedValue(undefined),
+  deletePreviousMessage: deletePreviousMessageMock,
   getMessage: vi.fn().mockResolvedValue([]),
   sendMessageBatches: vi.fn().mockResolvedValue(undefined),
 }));
@@ -272,3 +274,4 @@ describe('RemoveObjectiveCommand last used channel (guild-settings AC-9)', () =>
     expect(recordLastUsedChannelMock).toHaveBeenCalledWith('guild-1', 'channel-1');
   });
 });
+

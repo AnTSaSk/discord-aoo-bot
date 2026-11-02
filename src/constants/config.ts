@@ -29,6 +29,8 @@ export const ANNOUNCEMENT_BATCH_DELAY_MS = 1_000;
 export const GUILD_PURGE_GRACE_PERIOD_DAYS = 7;
 
 export const AGGREGATED_BOARD_MERGE_TOLERANCE_MS = 5 * 60 * 1_000;
+export const AGGREGATED_BOARD_CHECK_INTERVAL_MS = 60_000;
+export const AGGREGATED_BOARD_RENDER_WINDOW_MS = 60_000;
 
 // Discord limits of a single Components V2 message: total text displayed, top-level components
 export const DISCORD_MESSAGE_MAX_TEXT_LENGTH = 4000;

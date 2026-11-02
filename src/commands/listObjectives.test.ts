@@ -4,10 +4,17 @@ import type { Command } from '@sapphire/framework';
 import { ListObjectivesCommand } from '@/commands/listObjectives.js';
 import type { Objective } from '@/models/objective.model.js';
 
-const { getActiveObjectivesMock, getMessageMock, recordLastUsedChannelMock, loggerMock } = vi.hoisted(() => ({
+const {
+  getActiveObjectivesMock,
+  getMessageMock,
+  recordLastUsedChannelMock,
+  deletePreviousMessageMock,
+  loggerMock,
+} = vi.hoisted(() => ({
   getActiveObjectivesMock: vi.fn(),
   getMessageMock: vi.fn().mockResolvedValue([]),
   recordLastUsedChannelMock: vi.fn().mockResolvedValue(undefined),
+  deletePreviousMessageMock: vi.fn().mockResolvedValue(undefined),
   loggerMock: {
     trace: vi.fn(),
     debug: vi.fn(),
@@ -31,7 +38,7 @@ vi.mock('@/services/guildSettings.service.js', () => ({
 }));
 
 vi.mock('@/tasks/message.js', () => ({
-  deletePreviousMessage: vi.fn().mockResolvedValue(undefined),
+  deletePreviousMessage: deletePreviousMessageMock,
   getMessage: getMessageMock,
   sendMessageBatches: vi.fn().mockResolvedValue(undefined),
 }));
@@ -164,3 +171,4 @@ describe('ListObjectivesCommand board source (objective-selection AC-1, AC-3)', 
     expect(getMessageMock).toHaveBeenCalledWith(client, 'objective', activeObjectives);
   });
 });
+

@@ -5,6 +5,7 @@ import { SHUTDOWN_TIMEOUT_MS } from '@/constants/config.js';
 export interface ShutdownDeps {
   logger: Logger;
   stopHeartbeat?: () => void;
+  stopAggregatedBoard?: () => void;
   stopCron: () => Promise<void>;
   destroyClient: () => Promise<void>;
   closeDb: () => Promise<void>;
@@ -20,6 +21,7 @@ export const performShutdown = async (deps: ShutdownDeps, signal: string): Promi
 
   try {
     (deps.stopHeartbeat ?? ((): void => undefined))();
+    (deps.stopAggregatedBoard ?? ((): void => undefined))();
     await deps.stopCron();
     await deps.destroyClient();
     await deps.closeDb();
